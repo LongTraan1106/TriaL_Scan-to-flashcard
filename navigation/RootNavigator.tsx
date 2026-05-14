@@ -14,6 +14,8 @@ import SignUpScreen from '../screens/SignUpScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import GroupScreen from '../screens/GroupScreen';
 import SearchGroupScreen from '../screens/SearchGroupScreen';
+import FlashcardScreen from '../screens/FlashcardScreen';
+import FlashcardDetailScreen from '../screens/FlashcardDetailScreen';
 import { TabScreenWrapper } from './TabScreenWrapper';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -39,6 +41,12 @@ const WrappedProfile = () => (
   </TabScreenWrapper>
 );
 
+const WrappedFlashcard = () => (
+  <TabScreenWrapper>
+    <FlashcardScreen />
+  </TabScreenWrapper>
+);
+
 // Bottom Tab Navigator
 function TabNavigator() {
   return (
@@ -60,7 +68,7 @@ function TabNavigator() {
       />
       <Tab.Screen
         name="Flashcard"
-        component={WrappedDashboard}
+        component={WrappedFlashcard}
         options={{ title: 'Flashcard' }}
       />
       <Tab.Screen
@@ -83,7 +91,7 @@ export function RootNavigator() {
           <Stack.Screen
             name="Loading"
             component={LoadingScreen}
-            options={{ animationEnabled: false }}
+            options={{ animation: 'none' }}
           />
         </Stack.Navigator>
       </NavigationContainer>
@@ -104,7 +112,7 @@ export function RootNavigator() {
             <Stack.Screen
               name="SignIn"
               component={SignInScreen}
-              options={{ animationEnabled: false }}
+              options={{ animation: 'none' }}
             />
             <Stack.Screen name="SignUp" component={SignUpScreen} />
           </Stack.Group>
@@ -112,7 +120,7 @@ export function RootNavigator() {
 
         {/* App Stack */}
         {isLoggedIn && (
-          <Stack.Group screenOptions={{ animationEnabled: false }}>
+          <Stack.Group screenOptions={{ animation: 'none' }}>
             <Stack.Screen name="TabNavigator" component={TabNavigator} />
           </Stack.Group>
         )}
@@ -129,6 +137,7 @@ export function RootNavigator() {
           <Stack.Screen name="DocumentDetails" component={DocumentDetailsScreen} />
           <Stack.Screen name="Groups" component={GroupScreen} />
           <Stack.Screen name="SearchGroups" component={SearchGroupScreen} />
+          <Stack.Screen name="FlashcardDetail" component={FlashcardDetailScreen} />
         </Stack.Group>
       </Stack.Navigator>
     </NavigationContainer>

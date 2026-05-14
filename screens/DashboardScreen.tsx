@@ -6,16 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
-  Dimensions,
   Image,
+  ImageSourcePropType,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 
-const { width } = Dimensions.get('window');
-
 function DashboardScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   
   // Dữ liệu history
@@ -27,6 +23,10 @@ function DashboardScreen() {
 
   const handleNavigateToDocuments = () => {
     navigation.navigate('Documents');
+  };
+
+  const handleNavigateToFlashcard = () => {
+    navigation.navigate('Flashcard');
   };
 
   return (
@@ -54,6 +54,7 @@ function DashboardScreen() {
             title="FLASHCARD"
             image={require('../assets/flashcard.png')}
             backgroundColor="#AEC3B0"
+            onPress={handleNavigateToFlashcard}
           />
         </View>
 
@@ -104,7 +105,19 @@ function HeaderSection() {
 }
 
 // ===== FEATURE CARD =====
-function FeatureCard({ title, image, backgroundColor, onPress }) {
+interface FeatureCardProps {
+  title: string;
+  image: ImageSourcePropType;
+  backgroundColor: string;
+  onPress?: () => void;
+}
+
+function FeatureCard({
+  title,
+  image,
+  backgroundColor,
+  onPress,
+}: FeatureCardProps) {
   return (
     <TouchableOpacity
       style={[styles.featureCard, { backgroundColor }]}
@@ -118,7 +131,12 @@ function FeatureCard({ title, image, backgroundColor, onPress }) {
 }
 
 // ===== HISTORY ITEM =====
-function HistoryItem({ title, timestamp }) {
+interface HistoryItemProps {
+  title: string;
+  timestamp: string;
+}
+
+function HistoryItem({ title, timestamp }: HistoryItemProps) {
   return (
     <TouchableOpacity style={styles.historyItem}>
       <View style={styles.historyItemContent}>
