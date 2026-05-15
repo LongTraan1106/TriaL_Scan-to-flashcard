@@ -23,6 +23,8 @@ export interface Group {
   owner_name?: string;
   is_public: boolean;
   member_count: number;
+  max_members?: number;
+  avatar_key?: 'avatar_1' | 'avatar_2' | 'avatar_3' | 'avatar_4' | 'avatar_5';
   created_at: string;
   updated_at: string;
 }
@@ -37,12 +39,16 @@ export interface CreateGroupRequest {
   name: string;
   description?: string;
   is_public: boolean;
+  avatar_key?: 'avatar_1' | 'avatar_2' | 'avatar_3' | 'avatar_4' | 'avatar_5';
+  max_members?: number;
 }
 
 export interface UpdateGroupRequest {
   name?: string;
   description?: string;
   is_public?: boolean;
+  avatar_key?: 'avatar_1' | 'avatar_2' | 'avatar_3' | 'avatar_4' | 'avatar_5';
+  max_members?: number;
 }
 
 export interface AddMembersRequest {

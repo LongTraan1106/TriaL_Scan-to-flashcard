@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, {
   Circle,
@@ -18,6 +22,9 @@ import Svg, {
   Polyline,
 } from 'react-native-svg';
 import BackIcon from '../assets/icons/group_screen/back_icon.svg';
+import { useAuth } from '../contexts/AuthContext';
+import { useGroup } from '../contexts/GroupContext';
+import { GroupMember, UserSearchResult } from '../types/group';
 
 type TabKey = 'documents' | 'flashcards' | 'manage';
 
@@ -109,11 +116,152 @@ function GroupDetailScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const group = route.params?.group;
+  const routeGroup = route.params?.group;
+  const { user } = useAuth();
+  const {
+    currentGroup,
+    groupMembers,
+    userSearchResults,
+    isFetchingGroupDetails,
+    isSearchingUsers,
+    isAddingMembers,
+    error,
+    getGroupDetails,
+    addMembers,
+    removeMember,
+    searchUsers,
+    clearUserSearchResults,
+    clearError,
+  } = useGroup();
   const [activeTab, setActiveTab] = useState<TabKey>('documents');
+  const [memberModalVisible, setMemberModalVisible] = useState(false);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [selectedInviteUsers, setSelectedInviteUsers] = useState<UserSearchResult[]>([]);
+
+  const groupId = routeGroup?.id;
+  const group = currentGroup?.id === groupId ? currentGroup : routeGroup;
+  const members = currentGroup?.id === groupId ? groupMembers : [];
+  const selectedInviteIds = new Set(selectedInviteUsers.map((item) => item.id));
+  const existingMemberIds = new Set(members.map((item) => item.user_id));
+  const inviteResults = userSearchResults.filter((item) => !existingMemberIds.has(item.id));
+  const currentMember = members.find((item) => item.user_id === user?.id);
+  const canInviteMembers = currentMember?.member_role === 'owner';
 
   const groupName = group?.name || 'Class 1';
-  const memberCount = group?.member_count || 24;
+  const memberCount = group?.member_count ?? 24;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (groupId) {
+        getGroupDetails(groupId);
+      }
+    }, [getGroupDetails, groupId])
+  );
+
+  React.useEffect(() => {
+    if (error) {
+      Alert.alert('Error', error);
+      clearError();
+    }
+  }, [clearError, error]);
+
+  React.useEffect(() => {
+    if (!inviteModalVisible) {
+      return;
+    }
+
+    const query = inviteQuery.trim();
+    if (!query) {
+      clearUserSearchResults();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchUsers(query, groupId);
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [
+    clearUserSearchResults,
+    groupId,
+    inviteModalVisible,
+    inviteQuery,
+    searchUsers,
+  ]);
+
+  const closeInviteModal = () => {
+    setInviteModalVisible(false);
+    setInviteQuery('');
+    setSelectedInviteUsers([]);
+    clearUserSearchResults();
+  };
+
+  const handleOpenInvite = () => {
+    if (!canInviteMembers) {
+      Alert.alert('Permission Denied', 'Only the group owner can invite members.');
+      return;
+    }
+
+    setInviteModalVisible(true);
+  };
+
+  const handleToggleInviteUser = (targetUser: UserSearchResult) => {
+    setSelectedInviteUsers((prev) => {
+      if (prev.some((item) => item.id === targetUser.id)) {
+        return prev.filter((item) => item.id !== targetUser.id);
+      }
+
+      return [...prev, targetUser];
+    });
+  };
+
+  const handleAddSelectedMembers = async () => {
+    if (!groupId || selectedInviteUsers.length === 0) {
+      return;
+    }
+
+    try {
+      await addMembers(groupId, selectedInviteUsers.map((item) => item.id));
+      await getGroupDetails(groupId);
+      closeInviteModal();
+    } catch (addError) {
+      Alert.alert(
+        'Error',
+        addError instanceof Error ? addError.message : 'Failed to invite members'
+      );
+    }
+  };
+
+  const handleLeaveGroup = () => {
+    if (!groupId || !user?.id) {
+      return;
+    }
+
+    if (currentMember?.member_role === 'owner') {
+      Alert.alert('Owner account', 'Group owner cannot leave the group.');
+      return;
+    }
+
+    Alert.alert('Leave group', 'Are you sure you want to leave this group?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeMember(groupId, user.id);
+            navigation.goBack();
+          } catch (leaveError) {
+            Alert.alert(
+              'Error',
+              leaveError instanceof Error ? leaveError.message : 'Failed to leave group'
+            );
+          }
+        },
+      },
+    ]);
+  };
 
   const renderTabIcon = (tab: TabKey, selected: boolean) => {
     const color = tab === 'flashcards' && !selected ? '#606664' : '#2C4936';
@@ -132,16 +280,24 @@ function GroupDetailScreen() {
         <View style={styles.manageSection}>
           <Text style={styles.manageTitle}>Manage Group</Text>
           <View style={styles.manageCard}>
-            <ManageRow icon={<MembersIcon size={38} />} label="Member" />
+            <ManageRow
+              icon={<MembersIcon size={38} />}
+              label="Member"
+              onPress={() => setMemberModalVisible(true)}
+            />
             <View style={styles.divider} />
-            <ManageRow icon={<InviteIcon size={38} />} label="Invite members" />
+            <ManageRow
+              icon={<InviteIcon size={38} />}
+              label="Invite members"
+              onPress={handleOpenInvite}
+            />
             <View style={styles.manageSpacer} />
             <View style={styles.divider} />
             <ManageRow
               icon={<LeaveIcon size={38} />}
               label="Leave group"
               danger
-              onPress={() => Alert.alert('Leave group', 'This is UI preview only.')}
+              onPress={handleLeaveGroup}
             />
           </View>
         </View>
@@ -181,6 +337,11 @@ function GroupDetailScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
+      {isFetchingGroupDetails && !currentGroup && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color="#6F9A78" size="large" />
+        </View>
+      )}
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -220,7 +381,170 @@ function GroupDetailScreen() {
 
         {renderContent()}
       </ScrollView>
+
+      <MemberModal
+        visible={memberModalVisible}
+        members={members}
+        onClose={() => setMemberModalVisible(false)}
+      />
+      <InviteModal
+        visible={inviteModalVisible}
+        query={inviteQuery}
+        results={inviteResults}
+        selectedIds={selectedInviteIds}
+        isSearching={isSearchingUsers}
+        isSubmitting={isAddingMembers}
+        onChangeQuery={setInviteQuery}
+        onToggleUser={handleToggleInviteUser}
+        onSubmit={handleAddSelectedMembers}
+        onClose={closeInviteModal}
+      />
     </View>
+  );
+}
+
+function MemberModal({
+  visible,
+  members,
+  onClose,
+}: {
+  visible: boolean;
+  members: GroupMember[];
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Members</Text>
+            <TouchableOpacity onPress={onClose} style={styles.modalClose} activeOpacity={0.75}>
+              <Text style={styles.modalCloseText}>x</Text>
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={members}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => <MemberRow member={item} />}
+            ListEmptyComponent={<Text style={styles.emptyModalText}>No members found</Text>}
+            showsVerticalScrollIndicator={false}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function MemberRow({ member }: { member: GroupMember }) {
+  return (
+    <View style={styles.memberRow}>
+      <View style={styles.memberAvatar}>
+        <Text style={styles.memberAvatarText}>{member.username.slice(0, 1).toUpperCase()}</Text>
+      </View>
+      <View style={styles.memberInfo}>
+        <Text style={styles.memberName}>{member.username}</Text>
+        <Text style={styles.memberEmail} numberOfLines={1}>{member.email}</Text>
+      </View>
+      <Text style={styles.memberRole}>{member.member_role}</Text>
+    </View>
+  );
+}
+
+function InviteModal({
+  visible,
+  query,
+  results,
+  selectedIds,
+  isSearching,
+  isSubmitting,
+  onChangeQuery,
+  onToggleUser,
+  onSubmit,
+  onClose,
+}: {
+  visible: boolean;
+  query: string;
+  results: UserSearchResult[];
+  selectedIds: Set<number>;
+  isSearching: boolean;
+  isSubmitting: boolean;
+  onChangeQuery: (value: string) => void;
+  onToggleUser: (user: UserSearchResult) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Invite members</Text>
+            <TouchableOpacity onPress={onClose} style={styles.modalClose} activeOpacity={0.75}>
+              <Text style={styles.modalCloseText}>x</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.inviteSearch}>
+            <TextInput
+              style={styles.inviteInput}
+              placeholder="Search by username"
+              placeholderTextColor="#89968C"
+              value={query}
+              onChangeText={onChangeQuery}
+              editable={!isSubmitting}
+              selectionColor="#5F8A68"
+            />
+            {isSearching && <ActivityIndicator color="#6F9A78" size="small" />}
+          </View>
+
+          <FlatList
+            data={results}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={({ item }) => {
+              const selected = selectedIds.has(item.id);
+              return (
+                <TouchableOpacity
+                  style={[styles.inviteRow, selected && styles.inviteRowSelected]}
+                  onPress={() => onToggleUser(item)}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.memberAvatar}>
+                    <Text style={styles.memberAvatarText}>{item.username.slice(0, 1).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.memberInfo}>
+                    <Text style={styles.memberName}>{item.username}</Text>
+                    <Text style={styles.memberEmail} numberOfLines={1}>{item.email}</Text>
+                  </View>
+                  <Text style={styles.inviteAction}>{selected ? 'Remove' : 'Add'}</Text>
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              query.trim() ? <Text style={styles.emptyModalText}>No users found</Text> : null
+            }
+            style={styles.inviteList}
+            showsVerticalScrollIndicator={false}
+          />
+
+          <TouchableOpacity
+            style={[
+              styles.inviteSubmit,
+              (selectedIds.size === 0 || isSubmitting) && styles.inviteSubmitDisabled,
+            ]}
+            onPress={onSubmit}
+            disabled={selectedIds.size === 0 || isSubmitting}
+            activeOpacity={0.82}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.inviteSubmitText}>Add members</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -444,6 +768,166 @@ const styles = StyleSheet.create({
   manageSpacer: {
     flex: 1,
     minHeight: 196,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(243, 247, 237, 0.55)',
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(42, 58, 39, 0.42)',
+  },
+  modalCard: {
+    width: Math.min(SCREEN_WIDTH - 44, 420),
+    maxHeight: '72%',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeader: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '800',
+    color: '#2C4936',
+    textAlign: 'center',
+  },
+  modalClose: {
+    position: 'absolute',
+    right: 0,
+    width: 34,
+    height: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    fontSize: 25,
+    lineHeight: 27,
+    fontWeight: '500',
+    color: '#2C4936',
+  },
+  memberRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7DC',
+    paddingVertical: 8,
+  },
+  memberAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#B9CEB9',
+  },
+  memberAvatarText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  memberInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 10,
+  },
+  memberName: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  memberEmail: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#6B776D',
+  },
+  memberRole: {
+    marginLeft: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    color: '#6F8B73',
+    textTransform: 'capitalize',
+  },
+  emptyModalText: {
+    marginVertical: 22,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: '#6B776D',
+    textAlign: 'center',
+  },
+  inviteSearch: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CCD4CA',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  inviteInput: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 19,
+    color: '#2C4936',
+  },
+  inviteList: {
+    maxHeight: 250,
+  },
+  inviteRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  inviteRowSelected: {
+    backgroundColor: '#E5F1E2',
+  },
+  inviteAction: {
+    marginLeft: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    color: '#5F8A68',
+  },
+  inviteSubmit: {
+    height: 46,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    marginTop: 14,
+    backgroundColor: '#6F9A78',
+  },
+  inviteSubmitDisabled: {
+    opacity: 0.55,
+  },
+  inviteSubmitText: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 });
 

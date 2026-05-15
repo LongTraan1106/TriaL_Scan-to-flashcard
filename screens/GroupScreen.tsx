@@ -5,6 +5,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -23,7 +24,11 @@ import { useGroup } from '../contexts/GroupContext';
 import { Group } from '../types/group';
 import BackIcon from '../assets/icons/group_screen/back_icon.svg';
 import AddIcon from '../assets/icons/group_screen/add_icon.svg';
+import AvatarOneIcon from '../assets/icons/group_screen/avatar_1.svg';
 import AvatarTwoIcon from '../assets/icons/group_screen/avatar_2.svg';
+import AvatarThreeIcon from '../assets/icons/group_screen/avatar_3.svg';
+import AvatarFourIcon from '../assets/icons/group_screen/avatar_4.svg';
+import AvatarFiveIcon from '../assets/icons/group_screen/avatar_5.svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -34,47 +39,28 @@ const RESULT_MARGIN = Math.max(28, Math.min(50, SCREEN_WIDTH * 0.07));
 const FILTER_WIDTH = Math.max(104, Math.min(154, SCREEN_WIDTH * 0.22));
 const MODAL_WIDTH = Math.min(SCREEN_WIDTH - 48, 420);
 const MEMBER_AVATAR_SIZE = Math.max(34, Math.min(42, SCREEN_WIDTH * 0.105));
-const PREVIEW_GROUPS: Group[] = [
-  {
-    id: -1,
-    name: 'Class 3D',
-    description: 'Study group preview',
-    owner_id: -1,
-    owner_name: 'Teacher',
-    is_public: true,
-    member_count: 24,
-    created_at: '',
-    updated_at: '',
-  },
-];
 type SearchFilter = 'joined' | 'public';
+type AvatarKey = 'avatar_1' | 'avatar_2' | 'avatar_3' | 'avatar_4' | 'avatar_5';
 type SearchGroup = Group & {
   joined: boolean;
-  owner_name: string;
-  capacity: number;
+  owner_name?: string;
+  capacity?: number;
 };
 
-const PREVIEW_SEARCH_GROUPS: SearchGroup[] = [
-  {
-    ...PREVIEW_GROUPS[0],
-    joined: true,
-    owner_name: 'Teacher',
-    capacity: 25,
-  },
-  {
-    id: -2,
-    name: 'Class 4B',
-    description: 'Public study group preview',
-    owner_id: -2,
-    owner_name: 'Pham Quang Huy',
-    is_public: true,
-    member_count: 13,
-    capacity: 25,
-    joined: false,
-    created_at: '',
-    updated_at: '',
-  },
-];
+const GROUP_AVATAR_ICONS: Record<
+  AvatarKey,
+  React.ComponentType<{ width: number; height: number }>
+> = {
+  avatar_1: AvatarOneIcon,
+  avatar_2: AvatarTwoIcon,
+  avatar_3: AvatarThreeIcon,
+  avatar_4: AvatarFourIcon,
+  avatar_5: AvatarFiveIcon,
+};
+
+function getGroupAvatarIcon(avatarKey?: string | null) {
+  return GROUP_AVATAR_ICONS[(avatarKey as AvatarKey) || 'avatar_1'] || AvatarOneIcon;
+}
 
 function SearchIcon() {
   return (
@@ -110,7 +96,19 @@ function GroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const { error, getGroups, clearError } = useGroup();
+  const {
+    groups,
+    searchResults: publicSearchResults,
+    isFetchingGroups,
+    isSearchingGroups,
+    isJoiningGroup,
+    error,
+    getGroups,
+    searchPublicGroups,
+    joinGroup,
+    clearSearchResults,
+    clearError,
+  } = useGroup();
 
   const [searchText, setSearchText] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -132,34 +130,69 @@ function GroupScreen() {
     }
   }, [error, clearError]);
 
-  const filteredGroups = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    const displayGroups = PREVIEW_GROUPS;
-    if (!query) {
-      return displayGroups;
+  useEffect(() => {
+    if (!isSearchActive || searchFilter !== 'public') {
+      return;
     }
 
-    return displayGroups.filter((group) => {
+    const query = searchText.trim();
+    if (!query) {
+      clearSearchResults();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchPublicGroups(query);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [
+    clearSearchResults,
+    isSearchActive,
+    searchFilter,
+    searchPublicGroups,
+    searchText,
+  ]);
+
+  const filteredGroups = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) {
+      return groups;
+    }
+
+    return groups.filter((group) => {
       const description = group.description || '';
       return (
         group.name.toLowerCase().includes(query) ||
         description.toLowerCase().includes(query)
       );
     });
-  }, [searchText]);
+  }, [groups, searchText]);
 
   const searchResults = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    return PREVIEW_SEARCH_GROUPS.filter((group) => {
-      const inScope = searchFilter === 'joined' ? group.joined : !group.joined;
+    const scopedGroups: SearchGroup[] =
+      searchFilter === 'joined'
+        ? groups.map((group) => ({
+            ...group,
+            joined: true,
+            capacity: group.max_members || 25,
+          }))
+        : publicSearchResults.map((group) => ({
+            ...group,
+            joined: false,
+            capacity: group.max_members || 25,
+          }));
+
+    return scopedGroups.filter((group) => {
       const matchesQuery =
         !query ||
         group.name.toLowerCase().includes(query) ||
-        group.owner_name.toLowerCase().includes(query);
+        (group.owner_name || '').toLowerCase().includes(query);
 
-      return inScope && matchesQuery;
+      return matchesQuery;
     });
-  }, [searchFilter, searchText]);
+  }, [groups, publicSearchResults, searchFilter, searchText]);
 
   const handleGroupPress = (group: Group) => {
     navigation.navigate('GroupDetail', { group });
@@ -179,6 +212,26 @@ function GroupScreen() {
     setSearchText('');
     setSearchFilter('joined');
     setPreviewGroup(null);
+    clearSearchResults();
+  };
+
+  const handleJoinPreviewGroup = async () => {
+    if (!previewGroup) {
+      return;
+    }
+
+    try {
+      await joinGroup(previewGroup.id);
+      await getGroups();
+      setPreviewGroup(null);
+      setSearchFilter('joined');
+      clearSearchResults();
+    } catch (joinError) {
+      Alert.alert(
+        'Error',
+        joinError instanceof Error ? joinError.message : 'Failed to join group'
+      );
+    }
   };
 
   const handleCreateGroup = () => {
@@ -189,28 +242,32 @@ function GroupScreen() {
     navigation.navigate('CreateGroup');
   };
 
-  const renderGroupCard = ({ item }: { item: Group }) => (
-    <TouchableOpacity
-      style={styles.groupCard}
-      onPress={() => handleGroupPress(item)}
-      activeOpacity={0.78}
-    >
-      <View style={styles.avatarBox}>
-        <AvatarTwoIcon width={34} height={40} />
-      </View>
+  const renderGroupCard = ({ item }: { item: Group }) => {
+    const AvatarIcon = getGroupAvatarIcon(item.avatar_key);
 
-      <View style={styles.groupContent}>
-        <Text style={styles.groupName} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={styles.memberCount}>{item.member_count} Member</Text>
-      </View>
+    return (
+      <TouchableOpacity
+        style={styles.groupCard}
+        onPress={() => handleGroupPress(item)}
+        activeOpacity={0.78}
+      >
+        <View style={styles.avatarBox}>
+          <AvatarIcon width={36} height={40} />
+        </View>
 
-      <View style={styles.chevron}>
-        <BackIcon width={9} height={17} />
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.groupContent}>
+          <Text style={styles.groupName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.memberCount}>{item.member_count} Member</Text>
+        </View>
+
+        <View style={styles.chevron}>
+          <BackIcon width={9} height={17} />
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -247,12 +304,12 @@ function GroupScreen() {
           <Text style={styles.modalGroupName}>{previewGroup?.name}</Text>
           <Text style={styles.ownerLine}>
             <Text style={styles.ownerStrong}>Owner: </Text>
-            {previewGroup?.owner_name}
+            {previewGroup?.owner_name || 'Unknown'}
           </Text>
 
           <Text style={styles.modalMemberTitle}>Member</Text>
-          <Text style={styles.modalMemberCount}>
-            {previewGroup?.member_count}/{previewGroup?.capacity}
+            <Text style={styles.modalMemberCount}>
+            {previewGroup?.member_count}/{previewGroup?.capacity || 25}
           </Text>
 
           <View style={styles.memberPreviewGrid}>
@@ -274,11 +331,16 @@ function GroupScreen() {
           </View>
 
           <TouchableOpacity
-            style={styles.joinButton}
-            onPress={() => setPreviewGroup(null)}
+            style={[styles.joinButton, isJoiningGroup && styles.buttonDisabled]}
+            onPress={handleJoinPreviewGroup}
+            disabled={isJoiningGroup}
             activeOpacity={0.82}
           >
-            <Text style={styles.joinButtonText}>Join</Text>
+            {isJoiningGroup ? (
+              <ActivityIndicator color="#2C4936" size="small" />
+            ) : (
+              <Text style={styles.joinButtonText}>Join</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -327,18 +389,27 @@ function GroupScreen() {
         </View>
 
         <Text style={styles.resultTitle}>Result</Text>
-        <FlatList
-          data={searchResults}
-          renderItem={({ item }) => (
-            <SearchResultCard
-              group={item}
-              onPress={() => handleSearchResultPress(item)}
-            />
-          )}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={styles.searchResultList}
-          showsVerticalScrollIndicator={false}
-        />
+        {isSearchingGroups && searchFilter === 'public' ? (
+          <View style={styles.searchLoading}>
+            <ActivityIndicator color="#6F9A78" size="large" />
+          </View>
+        ) : (
+          <FlatList
+            data={searchResults}
+            renderItem={({ item }) => (
+              <SearchResultCard
+                group={item}
+                onPress={() => handleSearchResultPress(item)}
+              />
+            )}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={styles.searchResultList}
+            ListEmptyComponent={
+              <Text style={styles.searchEmptyText}>No groups found</Text>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )}
 
         {publicGroupPreviewModal}
       </View>
@@ -385,17 +456,23 @@ function GroupScreen() {
 
         <Text style={styles.sectionTitle}>My groups</Text>
 
-        <FlatList
-          data={filteredGroups}
-          renderItem={renderGroupCard}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={[
-            styles.listContent,
-            filteredGroups.length === 0 && styles.emptyListContent,
-          ]}
-          ListEmptyComponent={renderEmpty}
-          showsVerticalScrollIndicator={false}
-        />
+        {isFetchingGroups ? (
+          <View style={styles.listLoading}>
+            <ActivityIndicator color="#6F9A78" size="large" />
+          </View>
+        ) : (
+          <FlatList
+            data={filteredGroups}
+            renderItem={renderGroupCard}
+            keyExtractor={(item) => item.id.toString()}
+            contentContainerStyle={[
+              styles.listContent,
+              filteredGroups.length === 0 && styles.emptyListContent,
+            ]}
+            ListEmptyComponent={renderEmpty}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
 
     </View>
   );
@@ -640,6 +717,11 @@ const styles = StyleSheet.create({
     color: '#6B776D',
     textAlign: 'center',
   },
+  listLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   searchOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#EDF4E5',
@@ -707,6 +789,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: RESULT_MARGIN,
     paddingTop: 12,
     paddingBottom: 28,
+  },
+  searchLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchEmptyText: {
+    marginTop: 26,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+    color: '#6B776D',
+    textAlign: 'center',
   },
   searchResultCard: {
     minHeight: 104,
@@ -841,6 +936,9 @@ const styles = StyleSheet.create({
     lineHeight: 27,
     fontWeight: '800',
     color: '#2C4936',
+  },
+  buttonDisabled: {
+    opacity: 0.65,
   },
 });
 

@@ -14,8 +14,6 @@ import {
   UserSearchResponse,
   CreateGroupRequest,
   UpdateGroupRequest,
-  AddMembersRequest,
-  ChangeMemberRoleRequest,
   UserSearchResult,
 } from '../types/group';
 
@@ -46,6 +44,8 @@ class GroupService {
             name: data.name,
             description: data.description,
             is_public: data.is_public,
+            avatar_key: data.avatar_key || 'avatar_1',
+            max_members: data.max_members || 25,
           }),
         }
       );

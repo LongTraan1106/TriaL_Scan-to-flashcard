@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useGroup } from '../contexts/GroupContext';
+import { UserSearchResult } from '../types/group';
 import BackIcon from '../assets/icons/group_screen/back_icon.svg';
 import AvatarOneIcon from '../assets/icons/group_screen/avatar_1.svg';
 import AvatarTwoIcon from '../assets/icons/group_screen/avatar_2.svg';
@@ -22,7 +23,12 @@ import AvatarFiveIcon from '../assets/icons/group_screen/avatar_5.svg';
 import PublicIcon from '../assets/icons/group_screen/public_icon.svg';
 import PrivateIcon from '../assets/icons/group_screen/private_icon.svg';
 
-const AVATAR_OPTIONS = [
+type AvatarKey = 'avatar_1' | 'avatar_2' | 'avatar_3' | 'avatar_4' | 'avatar_5';
+
+const AVATAR_OPTIONS: Array<{
+  id: AvatarKey;
+  Icon: React.ComponentType<{ width: number; height: number }>;
+}> = [
   { id: 'avatar_1', Icon: AvatarOneIcon },
   { id: 'avatar_2', Icon: AvatarTwoIcon },
   { id: 'avatar_3', Icon: AvatarThreeIcon },
@@ -32,12 +38,6 @@ const AVATAR_OPTIONS = [
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SHEET_PADDING = Math.max(16, Math.min(24, SCREEN_WIDTH * 0.052));
-const PREVIEW_MEMBERS = [
-  { id: 1, name: 'Minh' },
-  { id: 2, name: 'An' },
-  { id: 3, name: 'Lan' },
-];
-
 function SearchIcon() {
   return (
     <View style={styles.searchIcon}>
@@ -50,17 +50,58 @@ function SearchIcon() {
 function CreateGroupScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+  const {
+    createGroup,
+    addMembers,
+    searchUsers,
+    userSearchResults,
+    isCreatingGroup,
+    isAddingMembers,
+    isSearchingUsers,
+    clearUserSearchResults,
+    clearError,
+  } = useGroup();
 
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
-  const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_OPTIONS[0].id);
+  const [selectedAvatar, setSelectedAvatar] = useState<AvatarKey>(AVATAR_OPTIONS[0].id);
   const [memberQuery, setMemberQuery] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<UserSearchResult[]>([]);
+  const selectedUserIds = useMemo(
+    () => new Set(selectedUsers.map((item) => item.id)),
+    [selectedUsers]
+  );
+  const isSubmitting = isCreatingGroup || isAddingMembers;
   const SelectedAvatarIcon =
     AVATAR_OPTIONS.find((option) => option.id === selectedAvatar)?.Icon ||
     AvatarOneIcon;
 
-  const handleCreate = () => {
+  useEffect(() => {
+    const query = memberQuery.trim();
+    if (!query) {
+      clearUserSearchResults();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchUsers(query);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [clearUserSearchResults, memberQuery, searchUsers]);
+
+  const handleToggleUser = (targetUser: UserSearchResult) => {
+    setSelectedUsers((prev) => {
+      if (prev.some((item) => item.id === targetUser.id)) {
+        return prev.filter((item) => item.id !== targetUser.id);
+      }
+
+      return [...prev, targetUser];
+    });
+  };
+
+  const handleCreate = async () => {
     const name = groupName.trim();
     const detail = description.trim();
 
@@ -79,7 +120,28 @@ function CreateGroupScreen() {
       return;
     }
 
-    navigation.goBack();
+    try {
+      const group = await createGroup({
+        name,
+        description: detail || undefined,
+        is_public: isPublic,
+        avatar_key: selectedAvatar as AvatarKey,
+        max_members: 25,
+      });
+
+      if (selectedUsers.length > 0) {
+        await addMembers(group.id, selectedUsers.map((item) => item.id));
+      }
+
+      clearUserSearchResults();
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to create group'
+      );
+      clearError();
+    }
   };
 
   const renderAvatarOption = ({ id, Icon }: (typeof AVATAR_OPTIONS)[number]) => {
@@ -97,22 +159,26 @@ function CreateGroupScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
+    <View style={styles.root}>
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 14, paddingBottom: insets.bottom + 18 },
+          { paddingBottom: insets.bottom + 18 },
         ]}
+        enableOnAndroid
+        extraScrollHeight={24}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero}>
+        <View
+          style={[
+            styles.hero,
+            { minHeight: insets.top + 112, paddingTop: insets.top + 14 },
+          ]}
+        >
           <TouchableOpacity
-            style={styles.backButton}
+            style={[styles.backButton, { top: insets.top + 18 }]}
             onPress={() => navigation.goBack()}
             activeOpacity={0.75}
           >
@@ -143,6 +209,7 @@ function CreateGroupScreen() {
               placeholderTextColor="#9EA6A0"
               value={groupName}
               onChangeText={setGroupName}
+              editable={!isSubmitting}
               maxLength={100}
               selectionColor="#5F8A68"
             />
@@ -159,6 +226,7 @@ function CreateGroupScreen() {
                 placeholderTextColor="#9EA6A0"
                 value={description}
                 onChangeText={setDescription}
+                editable={!isSubmitting}
                 maxLength={150}
                 multiline
                 textAlignVertical="top"
@@ -203,52 +271,92 @@ function CreateGroupScreen() {
                 placeholderTextColor="#9EA6A0"
                 value={memberQuery}
                 onChangeText={setMemberQuery}
+                editable={!isSubmitting}
                 selectionColor="#5F8A68"
               />
+              {isSearchingUsers && <ActivityIndicator color="#5F8A68" size="small" />}
             </View>
 
+            {memberQuery.trim().length > 0 && userSearchResults.length > 0 && (
+              <View style={styles.searchResults}>
+                {userSearchResults.slice(0, 4).map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.searchResultItem}
+                    onPress={() => handleToggleUser(item)}
+                    activeOpacity={0.75}
+                    disabled={isSubmitting}
+                  >
+                    <View style={styles.searchResultAvatar}>
+                      <Text style={styles.searchResultAvatarText}>
+                        {item.username.slice(0, 1).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.searchResultInfo}>
+                      <Text style={styles.searchResultName}>{item.username}</Text>
+                      <Text style={styles.searchResultEmail} numberOfLines={1}>
+                        {item.email}
+                      </Text>
+                    </View>
+                    <Text style={styles.searchResultAction}>
+                      {selectedUserIds.has(item.id) ? 'Remove' : 'Add'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             <View style={styles.chipRow}>
-              {PREVIEW_MEMBERS.map((item) => (
+              {selectedUsers.slice(0, 3).map((item) => (
                 <TouchableOpacity
                   key={item.id}
                   style={styles.memberChip}
+                  onPress={() => handleToggleUser(item)}
                   activeOpacity={0.8}
                 >
                   <View style={styles.chipAvatar}>
                     <Text style={styles.chipAvatarText}>
-                      {item.name.slice(0, 1).toUpperCase()}
+                      {item.username.slice(0, 1).toUpperCase()}
                     </Text>
                   </View>
                   <Text style={styles.chipText} numberOfLines={1}>
-                    {item.name}
+                    {item.username}
                   </Text>
                   <Text style={styles.chipRemove}>x</Text>
                 </TouchableOpacity>
               ))}
-              <View style={styles.memberChipCompact}>
-                <Text style={styles.chipText}>+3</Text>
-              </View>
+              {selectedUsers.length > 3 && (
+                <View style={styles.memberChipCompact}>
+                  <Text style={styles.chipText}>+{selectedUsers.length - 3}</Text>
+                </View>
+              )}
             </View>
           </View>
 
           <TouchableOpacity
-            style={styles.createButton}
+            style={[styles.createButton, isSubmitting && styles.buttonDisabled]}
             onPress={handleCreate}
+            disabled={isSubmitting}
             activeOpacity={0.85}
           >
-            <Text style={styles.createButtonText}>Create Group</Text>
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.createButtonText}>Create Group</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={() => navigation.goBack()}
+            disabled={isSubmitting}
             activeOpacity={0.75}
           >
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+    </View>
   );
 }
 
@@ -264,7 +372,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   hero: {
-    minHeight: 112,
     alignItems: 'center',
     paddingHorizontal: 22,
     backgroundColor: '#496D55',
@@ -272,7 +379,6 @@ const styles = StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: 24,
-    top: 24,
     width: 34,
     height: 34,
     justifyContent: 'center',
@@ -462,6 +568,55 @@ const styles = StyleSheet.create({
     bottom: 3,
     transform: [{ rotate: '45deg' }],
   },
+  searchResults: {
+    marginTop: 10,
+    borderRadius: 10,
+    backgroundColor: '#F3F7ED',
+    overflow: 'hidden',
+  },
+  searchResultItem: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DDE6D8',
+  },
+  searchResultAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#AFC5A9',
+  },
+  searchResultAvatarText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#274631',
+  },
+  searchResultInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 10,
+  },
+  searchResultName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#274631',
+  },
+  searchResultEmail: {
+    marginTop: 2,
+    fontSize: 11,
+    color: '#777E79',
+  },
+  searchResultAction: {
+    marginLeft: 10,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#5F8A68',
+  },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -540,6 +695,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#5F8A68',
+  },
+  buttonDisabled: {
+    opacity: 0.65,
   },
 });
 
