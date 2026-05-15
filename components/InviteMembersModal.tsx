@@ -31,7 +31,15 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
   onClose,
   onMembersAdded,
 }) => {
-  const { userSearchResults, loading, searchUsers, addMembers, clearError } = useGroup();
+  const {
+    userSearchResults,
+    isSearchingUsers,
+    isAddingMembers,
+    searchUsers,
+    addMembers,
+    clearError,
+    clearUserSearchResults,
+  } = useGroup();
   const [searchText, setSearchText] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
   const [isAdding, setIsAdding] = useState(false);
@@ -39,6 +47,7 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
   // Debounced search with 500ms delay
   useEffect(() => {
     if (!visible || !searchText.trim()) {
+      clearUserSearchResults();
       return;
     }
 
@@ -47,7 +56,7 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchText, visible, groupId, searchUsers]);
+  }, [searchText, visible, groupId, searchUsers, clearUserSearchResults]);
 
   const handleSelectUser = (userId: number) => {
     const newSelected = new Set(selectedUsers);
@@ -143,7 +152,7 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
             <Text style={styles.title}>Invite Members</Text>
             <TouchableOpacity
               onPress={handleClose}
-              disabled={loading || isAdding}
+              disabled={isSearchingUsers || isAdding || isAddingMembers}
             >
               <Text style={styles.closeButton}>✕</Text>
             </TouchableOpacity>
@@ -157,13 +166,13 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
               placeholderTextColor="#A0B0A0"
               value={searchText}
               onChangeText={setSearchText}
-              editable={!loading && !isAdding}
+              editable={!isSearchingUsers && !isAdding && !isAddingMembers}
               selectionColor="#8B9D8A"
             />
           </View>
 
           {/* Users List */}
-          {loading ? (
+          {isSearchingUsers ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#8B9D8A" />
             </View>
@@ -194,7 +203,7 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={handleClose}
-              disabled={loading || isAdding}
+              disabled={isSearchingUsers || isAdding || isAddingMembers}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -203,10 +212,10 @@ export const InviteMembersModal: React.FC<InviteMembersModalProps> = ({
               style={[
                 styles.button,
                 styles.inviteButton,
-                (loading || isAdding || selectedUsers.size === 0) ? styles.buttonDisabled : null,
+                (isSearchingUsers || isAdding || isAddingMembers || selectedUsers.size === 0) ? styles.buttonDisabled : null,
               ]}
               onPress={handleInvite}
-              disabled={loading || isAdding || selectedUsers.size === 0}
+              disabled={isSearchingUsers || isAdding || isAddingMembers || selectedUsers.size === 0}
             >
               {isAdding ? (
                 <Text style={styles.inviteButtonText}>Adding...</Text>

@@ -13,6 +13,8 @@ import SignInScreen from '../screens/SignInScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import GroupScreen from '../screens/GroupScreen';
+import CreateGroupScreen from '../screens/CreateGroupScreen';
+import GroupDetailScreen from '../screens/GroupDetailScreen';
 import SearchGroupScreen from '../screens/SearchGroupScreen';
 import FlashcardScreen from '../screens/FlashcardScreen';
 import FlashcardDetailScreen from '../screens/FlashcardDetailScreen';
@@ -133,6 +135,8 @@ export function RootNavigator() {
               <Stack.Screen name="Summary" component={SummaryScreen} />
               <Stack.Screen name="DocumentDetails" component={DocumentDetailsScreen} />
               <Stack.Screen name="Groups" component={GroupScreen} />
+              <Stack.Screen name="CreateGroup" component={CreateGroupScreen} />
+              <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
               <Stack.Screen name="SearchGroups" component={SearchGroupScreen} />
               <Stack.Screen name="FlashcardDetail" component={FlashcardDetailScreen} />
             </Stack.Group>

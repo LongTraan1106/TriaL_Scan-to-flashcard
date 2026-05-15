@@ -31,7 +31,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   onClose,
   onGroupCreated,
 }) => {
-  const { createGroup, loading, error, clearError } = useGroup();
+  const { createGroup, isCreatingGroup, error, clearError } = useGroup();
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
@@ -110,7 +110,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <Text style={styles.title}>Create Group</Text>
               <TouchableOpacity
                 onPress={handleClose}
-                disabled={loading}
+                disabled={isCreatingGroup}
               >
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
@@ -131,7 +131,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   value={groupName}
                   onChangeText={setGroupName}
                   maxLength={100}
-                  editable={!loading}
+                  editable={!isCreatingGroup}
                   selectionColor="#8B9D8A"
                 />
                 <Text style={styles.charCount}>
@@ -151,7 +151,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   maxLength={500}
                   multiline={true}
                   numberOfLines={4}
-                  editable={!loading}
+                  editable={!isCreatingGroup}
                   selectionColor="#8B9D8A"
                   textAlignVertical="top"
                 />
@@ -169,7 +169,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   <Switch
                     value={isPublic}
                     onValueChange={setIsPublic}
-                    disabled={loading}
+                    disabled={isCreatingGroup}
                     trackColor={{ false: '#C5D8C0', true: '#8B9D8A' }}
                     thumbColor="#FFFFFF"
                   />
@@ -187,7 +187,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
                 onPress={handleClose}
-                disabled={loading}
+                disabled={isCreatingGroup}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -196,12 +196,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                 style={[
                   styles.button,
                   styles.createButton,
-                  loading ? styles.buttonDisabled : null,
+                  isCreatingGroup ? styles.buttonDisabled : null,
                 ]}
                 onPress={handleCreate}
-                disabled={loading}
+                disabled={isCreatingGroup}
               >
-                {loading ? (
+                {isCreatingGroup ? (
                   <Text style={styles.createButtonText}>Creating...</Text>
                 ) : (
                   <Text style={styles.createButtonText}>Create</Text>

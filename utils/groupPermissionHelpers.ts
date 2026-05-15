@@ -52,15 +52,13 @@ export const getGroupPermissions = (
   members: GroupMember[]
 ): GroupPermissions => {
   const isOwner = isGroupOwner(userId, ownerId);
-  const isAdmin = isGroupAdmin(userId, members);
   const isMember = isGroupMember(userId, members);
-  const userMember = getUserRoleInGroup(userId, members);
 
   return {
     canEditGroup: isOwner,
     canDeleteGroup: isOwner,
-    canAddMembers: isOwner || isAdmin,
-    canRemoveMembers: isOwner || isAdmin,
+    canAddMembers: isOwner,
+    canRemoveMembers: isOwner,
     canChangeRoles: isOwner,
     canLeaveGroup: isMember,
     canViewMembers: isMember,
@@ -159,8 +157,8 @@ export const canRemoveMember = (
     return true;
   }
 
-  // Only owner and admin can remove others
-  if (!isGroupAdmin(userId, members)) {
+  // Backend only allows the owner to remove other members.
+  if (!isGroupOwner(userId, ownerId)) {
     return false;
   }
 

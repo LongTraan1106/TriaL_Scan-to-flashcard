@@ -45,20 +45,18 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
 }) => {
   const { user } = useAuth();
   const {
-    currentGroup,
     groupMembers,
-    loading,
+    isFetchingGroupDetails,
+    isJoiningGroup,
+    isDeletingGroup,
     getGroupDetails,
     removeMember,
     changeMemberRole,
     deleteGroup,
     joinGroup,
-    clearError,
   } = useGroup();
   
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
 
   useEffect(() => {
     if (visible && group) {
@@ -81,7 +79,6 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
 
   const handleJoinGroup = async () => {
     try {
-      setIsJoining(true);
       await joinGroup(group.id);
       Alert.alert('Success', 'Joined group successfully!');
       onDataUpdated();
@@ -90,8 +87,6 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
         'Error',
         error instanceof Error ? error.message : 'Failed to join group'
       );
-    } finally {
-      setIsJoining(false);
     }
   };
 
@@ -231,7 +226,6 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
           text: 'Delete',
           onPress: async () => {
             try {
-              setIsDeleting(true);
               await deleteGroup(group.id);
               Alert.alert('Success', 'Group deleted successfully', [
                 {
@@ -247,8 +241,6 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
                 'Error',
                 error instanceof Error ? error.message : 'Failed to delete group'
               );
-            } finally {
-              setIsDeleting(false);
             }
           },
           style: 'destructive',
@@ -260,7 +252,7 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
   const renderMemberItem = ({ item }: { item: GroupMember }) => {
     const isOwner = item.member_role === 'owner';
     const isAdmin = item.member_role === 'admin';
-    const isMember = item.member_role === 'member';
+    const isRegularMember = item.member_role === 'member';
     const canManage = permissions.canChangeRoles && !isOwner;
 
     return (
@@ -282,7 +274,7 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
 
         {canManage && (
           <View style={styles.memberActions}>
-            {isMember && (
+            {isRegularMember && (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => handlePromoteToAdmin(item.user_id, item.username)}
@@ -366,10 +358,10 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
                     <TouchableOpacity
                       style={[styles.button, styles.joinButtonLarge]}
                       onPress={handleJoinGroup}
-                      disabled={isJoining}
+                      disabled={isJoiningGroup}
                     >
                       <Text style={styles.joinButtonLargeText}>
-                        {isJoining ? 'Joining...' : 'Join Group'}
+                        {isJoiningGroup ? 'Joining...' : 'Join Group'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -390,7 +382,7 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
                     </View>
 
                     {/* Members List */}
-                    {loading ? (
+                    {isFetchingGroupDetails ? (
                       <View style={styles.loadingContainer}>
                         <ActivityIndicator size="large" color="#8B9D8A" />
                       </View>
@@ -414,10 +406,10 @@ export const GroupDetailModal: React.FC<GroupDetailModalProps> = ({
                 <TouchableOpacity
                   style={[styles.button, styles.deleteButton]}
                   onPress={handleDeleteGroup}
-                  disabled={isDeleting}
+                  disabled={isDeletingGroup}
                 >
                   <Text style={styles.deleteButtonText}>
-                    {isDeleting ? 'Deleting...' : 'Delete Group'}
+                    {isDeletingGroup ? 'Deleting...' : 'Delete Group'}
                   </Text>
                 </TouchableOpacity>
               )}

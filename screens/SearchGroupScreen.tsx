@@ -29,10 +29,12 @@ function SearchGroupScreen() {
   const { 
     groups, 
     searchResults, 
-    loading, 
+    isFetchingGroups,
+    isSearchingGroups,
     error, 
     getGroups, 
-    searchPublicGroups, 
+    searchPublicGroups,
+    clearSearchResults,
     clearError 
   } = useGroup();
   
@@ -55,16 +57,26 @@ function SearchGroupScreen() {
     }
   }, [error, clearError]);
 
-  const handleSearch = async (text: string) => {
-    setSearchText(text);
-    
-    if (!text.trim()) {
+  useEffect(() => {
+    if (filter !== 'public') {
       return;
     }
 
-    if (filter === 'public') {
-      await searchPublicGroups(text);
+    const query = searchText.trim();
+    if (!query) {
+      clearSearchResults();
+      return;
     }
+
+    const timer = setTimeout(() => {
+      searchPublicGroups(query);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchText, filter, searchPublicGroups, clearSearchResults]);
+
+  const handleSearch = (text: string) => {
+    setSearchText(text);
   };
 
   const getDisplayResults = (): Group[] => {
@@ -155,6 +167,7 @@ function SearchGroupScreen() {
           onPress={() => {
             setFilter('my');
             setSearchText('');
+            clearSearchResults();
           }}
         >
           <Text
@@ -175,6 +188,7 @@ function SearchGroupScreen() {
           onPress={() => {
             setFilter('public');
             setSearchText('');
+            clearSearchResults();
           }}
         >
           <Text
@@ -189,7 +203,7 @@ function SearchGroupScreen() {
       </View>
 
       {/* Results List */}
-      {loading ? (
+      {(filter === 'my' ? isFetchingGroups : isSearchingGroups) ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#8B9D8A" />
         </View>

@@ -114,10 +114,21 @@ export interface GroupContextType {
   searchResults: Group[];
   userSearchResults: UserSearchResult[];
   loading: boolean;
+  isFetchingGroups: boolean;
+  isCreatingGroup: boolean;
+  isFetchingGroupDetails: boolean;
+  isSearchingGroups: boolean;
+  isAddingMembers: boolean;
+  isChangingMemberRole: boolean;
+  isRemovingMember: boolean;
+  isUpdatingGroup: boolean;
+  isDeletingGroup: boolean;
+  isJoiningGroup: boolean;
+  isSearchingUsers: boolean;
   error: string | null;
 
   // Methods
-  createGroup: (data: CreateGroupRequest) => Promise<void>;
+  createGroup: (data: CreateGroupRequest) => Promise<Group>;
   getGroups: () => Promise<void>;
   getGroupDetails: (groupId: number) => Promise<void>;
   searchPublicGroups: (searchName: string) => Promise<void>;
@@ -130,6 +141,8 @@ export interface GroupContextType {
   searchUsers: (username: string, excludeGroupId?: number) => Promise<void>;
   clearError: () => void;
   clearCurrentGroup: () => void;
+  clearSearchResults: () => void;
+  clearUserSearchResults: () => void;
 }
 
 // ==================== Permission Helper Types ====================

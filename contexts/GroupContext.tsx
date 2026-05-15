@@ -27,24 +27,48 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const [groupMembers, setGroupMembers] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<Group[]>([]);
   const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [isFetchingGroups, setIsFetchingGroups] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isFetchingGroupDetails, setIsFetchingGroupDetails] = useState(false);
+  const [isSearchingGroups, setIsSearchingGroups] = useState(false);
+  const [isAddingMembers, setIsAddingMembers] = useState(false);
+  const [isChangingMemberRole, setIsChangingMemberRole] = useState(false);
+  const [isRemovingMember, setIsRemovingMember] = useState(false);
+  const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  const [isJoiningGroup, setIsJoiningGroup] = useState(false);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loading =
+    isFetchingGroups ||
+    isCreatingGroup ||
+    isFetchingGroupDetails ||
+    isSearchingGroups ||
+    isAddingMembers ||
+    isChangingMemberRole ||
+    isRemovingMember ||
+    isUpdatingGroup ||
+    isDeletingGroup ||
+    isJoiningGroup ||
+    isSearchingUsers;
 
   // ==================== Create Group ====================
 
   const createGroup = useCallback(async (data: CreateGroupRequest) => {
     try {
-      setLoading(true);
+      setIsCreatingGroup(true);
       setError(null);
 
       const newGroup = await groupService.createGroup(data);
       setGroups((prev) => [...prev, newGroup]);
+      return newGroup;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create group';
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsCreatingGroup(false);
     }
   }, []);
 
@@ -52,7 +76,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const getGroups = useCallback(async () => {
     try {
-      setLoading(true);
+      setIsFetchingGroups(true);
       setError(null);
 
       const fetchedGroups = await groupService.getGroups();
@@ -62,7 +86,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsFetchingGroups(false);
     }
   }, []);
 
@@ -70,7 +94,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const getGroupDetails = useCallback(async (groupId: number) => {
     try {
-      setLoading(true);
+      setIsFetchingGroupDetails(true);
       setError(null);
 
       const groupDetail = await groupService.getGroupDetails(groupId);
@@ -81,7 +105,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsFetchingGroupDetails(false);
     }
   }, []);
 
@@ -89,7 +113,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const searchPublicGroups = useCallback(async (searchName: string) => {
     try {
-      setLoading(true);
+      setIsSearchingGroups(true);
       setError(null);
 
       const results = await groupService.searchPublicGroups(searchName);
@@ -99,7 +123,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsSearchingGroups(false);
     }
   }, []);
 
@@ -107,7 +131,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const addMembers = useCallback(async (groupId: number, userIds: number[]) => {
     try {
-      setLoading(true);
+      setIsAddingMembers(true);
       setError(null);
 
       const updatedGroup = await groupService.addMembers(groupId, userIds);
@@ -127,7 +151,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsAddingMembers(false);
     }
   }, [currentGroup]);
 
@@ -136,7 +160,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const changeMemberRole = useCallback(
     async (groupId: number, userId: number, role: 'admin' | 'member') => {
       try {
-        setLoading(true);
+        setIsChangingMemberRole(true);
         setError(null);
 
         await groupService.changeMemberRole(groupId, userId, role);
@@ -154,7 +178,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
         setError(errorMessage);
         throw err;
       } finally {
-        setLoading(false);
+        setIsChangingMemberRole(false);
       }
     },
     [currentGroup, groupMembers]
@@ -165,7 +189,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const removeMember = useCallback(
     async (groupId: number, userId: number) => {
       try {
-        setLoading(true);
+        setIsRemovingMember(true);
         setError(null);
 
         await groupService.removeMember(groupId, userId);
@@ -192,7 +216,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
         setError(errorMessage);
         throw err;
       } finally {
-        setLoading(false);
+        setIsRemovingMember(false);
       }
     },
     [currentGroup, groupMembers]
@@ -202,7 +226,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const updateGroup = useCallback(async (groupId: number, data: UpdateGroupRequest) => {
     try {
-      setLoading(true);
+      setIsUpdatingGroup(true);
       setError(null);
 
       const updatedGroup = await groupService.updateGroup(groupId, data);
@@ -221,7 +245,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsUpdatingGroup(false);
     }
   }, [currentGroup]);
 
@@ -229,7 +253,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const deleteGroup = useCallback(async (groupId: number) => {
     try {
-      setLoading(true);
+      setIsDeletingGroup(true);
       setError(null);
 
       await groupService.deleteGroup(groupId);
@@ -247,7 +271,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsDeletingGroup(false);
     }
   }, [currentGroup]);
 
@@ -255,7 +279,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const joinGroup = useCallback(async (groupId: number) => {
     try {
-      setLoading(true);
+      setIsJoiningGroup(true);
       setError(null);
 
       await groupService.joinGroup(groupId);
@@ -273,7 +297,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setError(errorMessage);
       throw err;
     } finally {
-      setLoading(false);
+      setIsJoiningGroup(false);
     }
   }, []);
 
@@ -281,7 +305,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
 
   const searchUsers = useCallback(async (username: string, excludeGroupId?: number) => {
     try {
-      setLoading(true);
+      setIsSearchingUsers(true);
       setError(null);
 
       const results = await groupService.searchUsers(username, excludeGroupId);
@@ -294,7 +318,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
       setUserSearchResults([]);
       setError(null); // Don't show error alert, let component show "No users found"
     } finally {
-      setLoading(false);
+      setIsSearchingUsers(false);
     }
   }, []);
 
@@ -309,6 +333,14 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     setGroupMembers([]);
   }, []);
 
+  const clearSearchResults = useCallback(() => {
+    setSearchResults([]);
+  }, []);
+
+  const clearUserSearchResults = useCallback(() => {
+    setUserSearchResults([]);
+  }, []);
+
   // ==================== Provider Value ====================
 
   const value: GroupContextType = {
@@ -318,6 +350,17 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     searchResults,
     userSearchResults,
     loading,
+    isFetchingGroups,
+    isCreatingGroup,
+    isFetchingGroupDetails,
+    isSearchingGroups,
+    isAddingMembers,
+    isChangingMemberRole,
+    isRemovingMember,
+    isUpdatingGroup,
+    isDeletingGroup,
+    isJoiningGroup,
+    isSearchingUsers,
     error,
     createGroup,
     getGroups,
@@ -332,6 +375,8 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     searchUsers,
     clearError,
     clearCurrentGroup,
+    clearSearchResults,
+    clearUserSearchResults,
   };
 
   return <GroupContext.Provider value={value}>{children}</GroupContext.Provider>;
