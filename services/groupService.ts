@@ -15,9 +15,14 @@ import {
   CreateGroupRequest,
   UpdateGroupRequest,
   UserSearchResult,
+  GroupSharedItemsResponse,
+  ShareGroupItemRequest,
 } from '../types/group';
 
 const API_URL = 'https://api.mealsretrieval.site';
+
+const getGroupApiErrorMessage = (responseData: any, fallback: string) =>
+  responseData?.message || responseData?.detail || fallback;
 
 class GroupService {
   /**
@@ -53,7 +58,7 @@ class GroupService {
       const responseData: GroupCreateResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to create group');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to create group'));
       }
 
       if (!responseData.data) {
@@ -93,7 +98,7 @@ class GroupService {
       const responseData: GroupListResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to fetch groups');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to fetch groups'));
       }
 
       return responseData.data || [];
@@ -129,7 +134,7 @@ class GroupService {
       const responseData: GroupListResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to search groups');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to search groups'));
       }
 
       return responseData.data || [];
@@ -165,7 +170,7 @@ class GroupService {
       const responseData: GroupDetailResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to fetch group details');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to fetch group details'));
       }
 
       if (!responseData.data) {
@@ -208,7 +213,7 @@ class GroupService {
       const responseData: GroupDetailResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to add members');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to add members'));
       }
 
       if (!responseData.data) {
@@ -255,7 +260,7 @@ class GroupService {
       const responseData: BasicResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to change member role');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to change member role'));
       }
     } catch (error) {
       console.error('Change member role error:', error);
@@ -289,10 +294,53 @@ class GroupService {
       const responseData: BasicResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to remove member');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to remove member'));
       }
     } catch (error) {
       console.error('Remove member error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Transfer group ownership to another active member
+   */
+  async transferOwnership(groupId: number, targetUserId: number): Promise<GroupDetail> {
+    try {
+      const accessToken = await storageService.getAccessToken();
+      const userData = await storageService.getUserData();
+
+      if (!accessToken || !userData) {
+        throw new Error('Unauthorized: No access token found');
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/groups/${groupId}/transfer-ownership?user_id=${userData.id}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            target_user_id: targetUserId,
+          }),
+        }
+      );
+
+      const responseData: GroupDetailResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to transfer ownership'));
+      }
+
+      if (!responseData.data) {
+        throw new Error('No data returned from server');
+      }
+
+      return responseData.data;
+    } catch (error) {
+      console.error('Transfer ownership error:', error);
       throw error;
     }
   }
@@ -324,7 +372,7 @@ class GroupService {
       const responseData: GroupCreateResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to update group');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to update group'));
       }
 
       if (!responseData.data) {
@@ -364,7 +412,7 @@ class GroupService {
       const responseData: BasicResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to delete group');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to delete group'));
       }
     } catch (error) {
       console.error('Delete group error:', error);
@@ -399,7 +447,7 @@ class GroupService {
       const responseData: UserSearchResponse = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to search users');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to search users'));
       }
 
       return responseData.data || [];
@@ -435,12 +483,121 @@ class GroupService {
       const responseData: any = await response.json();
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to join group');
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to join group'));
       }
 
       return responseData.data;
     } catch (error) {
       console.error('Join group error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get shared documents/flashcard sets in a group
+   */
+  async getGroupSharedItems(groupId: number) {
+    try {
+      const accessToken = await storageService.getAccessToken();
+      const userData = await storageService.getUserData();
+
+      if (!accessToken || !userData) {
+        throw new Error('Unauthorized: No access token found');
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/groups/${groupId}/shared-items?user_id=${userData.id}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      const responseData: GroupSharedItemsResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to fetch shared items'));
+      }
+
+      return responseData.data || [];
+    } catch (error) {
+      console.error('Get group shared items error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Share an owned document/flashcard set to a group
+   */
+  async shareGroupItem(groupId: number, data: ShareGroupItemRequest) {
+    try {
+      const accessToken = await storageService.getAccessToken();
+      const userData = await storageService.getUserData();
+
+      if (!accessToken || !userData) {
+        throw new Error('Unauthorized: No access token found');
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/groups/${groupId}/shared-items?user_id=${userData.id}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(data),
+        }
+      );
+
+      const responseData: GroupSharedItemsResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to share item'));
+      }
+
+      return responseData.data || [];
+    } catch (error) {
+      console.error('Share group item error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a shared item relation from a group
+   */
+  async removeGroupSharedItem(groupId: number, sharedItemId: number) {
+    try {
+      const accessToken = await storageService.getAccessToken();
+      const userData = await storageService.getUserData();
+
+      if (!accessToken || !userData) {
+        throw new Error('Unauthorized: No access token found');
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/groups/${groupId}/shared-items/${sharedItemId}?user_id=${userData.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+      const responseData: GroupSharedItemsResponse = await response.json();
+
+      if (!response.ok) {
+        throw new Error(getGroupApiErrorMessage(responseData, 'Failed to remove shared item'));
+      }
+
+      return responseData.data || [];
+    } catch (error) {
+      console.error('Remove group shared item error:', error);
       throw error;
     }
   }

@@ -33,6 +33,21 @@ export interface GroupDetail extends Group {
   members: GroupMember[];
 }
 
+export type GroupSharedItemType = 'document' | 'flashcard';
+
+export interface GroupSharedItem {
+  id: number;
+  group_id: number;
+  item_type: GroupSharedItemType;
+  item_id: number;
+  title: string;
+  source_file_name?: string | null;
+  total_cards?: number | null;
+  shared_by_user_id: number;
+  shared_by_username: string;
+  created_at: string;
+}
+
 // ==================== Request Types ====================
 
 export interface CreateGroupRequest {
@@ -63,6 +78,11 @@ export interface SearchUsersRequest {
   username: string;
 }
 
+export interface ShareGroupItemRequest {
+  item_type: GroupSharedItemType;
+  item_id: number;
+}
+
 // ==================== Response Types ====================
 
 export interface GroupCreateResponse {
@@ -87,6 +107,12 @@ export interface GroupMembersResponse {
   success: boolean;
   message: string;
   data?: GroupMember[];
+}
+
+export interface GroupSharedItemsResponse {
+  success: boolean;
+  message: string;
+  data?: GroupSharedItem[];
 }
 
 export interface BasicResponse {
@@ -117,6 +143,7 @@ export interface GroupContextType {
   groups: Group[];
   currentGroup: GroupDetail | null;
   groupMembers: GroupMember[];
+  groupSharedItems: GroupSharedItem[];
   searchResults: Group[];
   userSearchResults: UserSearchResult[];
   loading: boolean;
@@ -127,10 +154,14 @@ export interface GroupContextType {
   isAddingMembers: boolean;
   isChangingMemberRole: boolean;
   isRemovingMember: boolean;
+  isTransferringOwnership: boolean;
   isUpdatingGroup: boolean;
   isDeletingGroup: boolean;
   isJoiningGroup: boolean;
   isSearchingUsers: boolean;
+  isFetchingSharedItems: boolean;
+  isSharingItem: boolean;
+  isRemovingSharedItem: boolean;
   error: string | null;
 
   // Methods
@@ -141,10 +172,14 @@ export interface GroupContextType {
   addMembers: (groupId: number, userIds: number[]) => Promise<void>;
   changeMemberRole: (groupId: number, userId: number, role: 'admin' | 'member') => Promise<void>;
   removeMember: (groupId: number, userId: number) => Promise<void>;
+  transferOwnership: (groupId: number, targetUserId: number) => Promise<void>;
   updateGroup: (groupId: number, data: UpdateGroupRequest) => Promise<void>;
   deleteGroup: (groupId: number) => Promise<void>;
   joinGroup: (groupId: number) => Promise<void>;
   searchUsers: (username: string, excludeGroupId?: number) => Promise<void>;
+  getGroupSharedItems: (groupId: number) => Promise<void>;
+  shareGroupItem: (groupId: number, data: ShareGroupItemRequest) => Promise<void>;
+  removeGroupSharedItem: (groupId: number, sharedItemId: number) => Promise<void>;
   clearError: () => void;
   clearCurrentGroup: () => void;
   clearSearchResults: () => void;

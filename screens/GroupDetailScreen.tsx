@@ -24,9 +24,15 @@ import Svg, {
 import BackIcon from '../assets/icons/group_screen/back_icon.svg';
 import { useAuth } from '../contexts/AuthContext';
 import { useGroup } from '../contexts/GroupContext';
-import { GroupMember, UserSearchResult } from '../types/group';
+import { GroupMember, GroupSharedItem, UserSearchResult } from '../types/group';
+import {
+  documentService,
+  DocumentListItem,
+  FlashcardListItem,
+} from '../services/documentService';
 
 type TabKey = 'documents' | 'flashcards' | 'manage';
+type SharePickerTab = 'document' | 'flashcard';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PAGE_PADDING = Math.max(18, Math.min(26, SCREEN_WIDTH * 0.05));
@@ -121,14 +127,27 @@ function GroupDetailScreen() {
   const {
     currentGroup,
     groupMembers,
+    groupSharedItems,
     userSearchResults,
     isFetchingGroupDetails,
+    isFetchingSharedItems,
     isSearchingUsers,
     isAddingMembers,
+    isChangingMemberRole,
+    isRemovingMember,
+    isTransferringOwnership,
+    isSharingItem,
+    isRemovingSharedItem,
     error,
     getGroupDetails,
+    getGroupSharedItems,
     addMembers,
     removeMember,
+    changeMemberRole,
+    transferOwnership,
+    deleteGroup,
+    shareGroupItem,
+    removeGroupSharedItem,
     searchUsers,
     clearUserSearchResults,
     clearError,
@@ -138,25 +157,59 @@ function GroupDetailScreen() {
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [inviteQuery, setInviteQuery] = useState('');
   const [selectedInviteUsers, setSelectedInviteUsers] = useState<UserSearchResult[]>([]);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [sharePickerTab, setSharePickerTab] = useState<SharePickerTab>('document');
+  const [ownedDocuments, setOwnedDocuments] = useState<DocumentListItem[]>([]);
+  const [ownedFlashcards, setOwnedFlashcards] = useState<FlashcardListItem[]>([]);
+  const [isLoadingOwnedItems, setIsLoadingOwnedItems] = useState(false);
 
   const groupId = routeGroup?.id;
   const group = currentGroup?.id === groupId ? currentGroup : routeGroup;
   const members = currentGroup?.id === groupId ? groupMembers : [];
+  const sharedDocuments = groupSharedItems.filter((item) => item.item_type === 'document');
+  const sharedFlashcards = groupSharedItems.filter((item) => item.item_type === 'flashcard');
+  const sharedKeys = new Set(
+    groupSharedItems.map((item) => `${item.item_type}:${item.item_id}`)
+  );
   const selectedInviteIds = new Set(selectedInviteUsers.map((item) => item.id));
   const existingMemberIds = new Set(members.map((item) => item.user_id));
   const inviteResults = userSearchResults.filter((item) => !existingMemberIds.has(item.id));
   const currentMember = members.find((item) => item.user_id === user?.id);
-  const canInviteMembers = currentMember?.member_role === 'owner';
+  const isRouteOwner = group?.owner_id === user?.id;
+  const canInviteMembers = currentMember?.member_role === 'owner' || isRouteOwner;
+  const canModerateSharedItems =
+    currentMember?.member_role === 'owner' || currentMember?.member_role === 'admin' || isRouteOwner;
 
   const groupName = group?.name || 'Class 1';
   const memberCount = group?.member_count ?? 24;
+
+  const loadOwnedItems = React.useCallback(async () => {
+    try {
+      setIsLoadingOwnedItems(true);
+      const [documents, flashcards] = await Promise.all([
+        documentService.getDocuments(),
+        documentService.getFlashcardSets(),
+      ]);
+      setOwnedDocuments(documents);
+      setOwnedFlashcards(flashcards);
+    } catch (loadError) {
+      Alert.alert(
+        'Error',
+        loadError instanceof Error ? loadError.message : 'Failed to load your items'
+      );
+    } finally {
+      setIsLoadingOwnedItems(false);
+    }
+  }, []);
 
   useFocusEffect(
     React.useCallback(() => {
       if (groupId) {
         getGroupDetails(groupId);
+        getGroupSharedItems(groupId);
+        loadOwnedItems();
       }
-    }, [getGroupDetails, groupId])
+    }, [getGroupDetails, getGroupSharedItems, groupId, loadOwnedItems])
   );
 
   React.useEffect(() => {
@@ -233,13 +286,191 @@ function GroupDetailScreen() {
     }
   };
 
+  const handleShareItem = async (itemType: SharePickerTab, itemId: number) => {
+    if (!groupId) {
+      return;
+    }
+
+    try {
+      await shareGroupItem(groupId, {
+        item_type: itemType,
+        item_id: itemId,
+      });
+      await getGroupSharedItems(groupId);
+    } catch (shareError) {
+      Alert.alert(
+        'Error',
+        shareError instanceof Error ? shareError.message : 'Failed to share item'
+      );
+    }
+  };
+
+  const handleRemoveSharedItem = (item: GroupSharedItem) => {
+    if (!groupId) {
+      return;
+    }
+
+    const canRemove = canModerateSharedItems || item.shared_by_user_id === user?.id;
+    if (!canRemove) {
+      Alert.alert('Permission Denied', 'You can only remove items you shared.');
+      return;
+    }
+
+    Alert.alert('Remove shared item', `Remove "${item.title}" from this group?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeGroupSharedItem(groupId, item.id);
+            await getGroupSharedItems(groupId);
+          } catch (removeError) {
+            Alert.alert(
+              'Error',
+              removeError instanceof Error ? removeError.message : 'Failed to remove shared item'
+            );
+          }
+        },
+      },
+    ]);
+  };
+
+  const refreshGroupMembers = async () => {
+    if (groupId) {
+      await getGroupDetails(groupId);
+    }
+  };
+
+  const handleChangeMemberRole = (member: GroupMember, nextRole: 'admin' | 'member') => {
+    if (!groupId) {
+      return;
+    }
+
+    Alert.alert(
+      nextRole === 'admin' ? 'Promote member' : 'Demote admin',
+      `Change ${member.username}'s role to ${nextRole}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              await changeMemberRole(groupId, member.user_id, nextRole);
+              await refreshGroupMembers();
+            } catch (roleError) {
+              Alert.alert(
+                'Error',
+                roleError instanceof Error ? roleError.message : 'Failed to update member role'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRemoveGroupMember = (member: GroupMember) => {
+    if (!groupId) {
+      return;
+    }
+
+    Alert.alert('Remove member', `Remove ${member.username} from this group?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removeMember(groupId, member.user_id);
+            await refreshGroupMembers();
+          } catch (removeError) {
+            Alert.alert(
+              'Error',
+              removeError instanceof Error ? removeError.message : 'Failed to remove member'
+            );
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleTransferOwnership = (member: GroupMember) => {
+    if (!groupId) {
+      return;
+    }
+
+    Alert.alert(
+      'Transfer ownership',
+      `Make ${member.username} the owner of this group? You will become an admin.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Transfer',
+          onPress: async () => {
+            try {
+              await transferOwnership(groupId, member.user_id);
+              await refreshGroupMembers();
+            } catch (transferError) {
+              Alert.alert(
+                'Error',
+                transferError instanceof Error ? transferError.message : 'Failed to transfer ownership'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteGroup = () => {
+    if (!groupId || !isRouteOwner) {
+      Alert.alert('Permission Denied', 'Only the owner can delete this group.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete group',
+      'Delete this group? Shared links will be removed, but original documents and flashcards stay in user accounts.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteGroup(groupId);
+              navigation.goBack();
+            } catch (deleteError) {
+              Alert.alert(
+                'Error',
+                deleteError instanceof Error ? deleteError.message : 'Failed to delete group'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleLeaveGroup = () => {
     if (!groupId || !user?.id) {
       return;
     }
 
-    if (currentMember?.member_role === 'owner') {
-      Alert.alert('Owner account', 'Group owner cannot leave the group.');
+    if (currentMember?.member_role === 'owner' || isRouteOwner) {
+      Alert.alert(
+        'Owner account',
+        memberCount > 1
+          ? 'Transfer ownership before leaving this group.'
+          : 'You are the only member. Delete the group instead.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          ...(memberCount > 1
+            ? [{ text: 'View members', onPress: () => setMemberModalVisible(true) }]
+            : [{ text: 'Delete group', style: 'destructive' as const, onPress: handleDeleteGroup }]),
+        ]
+      );
       return;
     }
 
@@ -285,52 +516,103 @@ function GroupDetailScreen() {
               label="Member"
               onPress={() => setMemberModalVisible(true)}
             />
+            {canInviteMembers && (
+              <>
+                <View style={styles.divider} />
+                <ManageRow
+                  icon={<InviteIcon size={38} />}
+                  label="Invite members"
+                  onPress={handleOpenInvite}
+                />
+              </>
+            )}
             <View style={styles.divider} />
-            <ManageRow
-              icon={<InviteIcon size={38} />}
-              label="Invite members"
-              onPress={handleOpenInvite}
-            />
+            <View style={styles.manageSharedBlock}>
+              <View style={styles.manageSharedHeader}>
+                <Text style={styles.manageSharedTitle}>Shared Items</Text>
+                <TouchableOpacity
+                  style={styles.manageSharedAdd}
+                  onPress={() => setShareModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.manageSharedAddText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+              {groupSharedItems.length === 0 ? (
+                <Text style={styles.manageSharedEmpty}>No shared items yet.</Text>
+              ) : (
+                groupSharedItems.slice(0, 4).map((item) => (
+                  <ManageSharedItem
+                    key={item.id}
+                    item={item}
+                    canRemove={canModerateSharedItems || item.shared_by_user_id === user?.id}
+                    isRemoving={isRemovingSharedItem}
+                    onRemove={() => handleRemoveSharedItem(item)}
+                  />
+                ))
+              )}
+              {groupSharedItems.length > 4 && (
+                <Text style={styles.manageSharedMore}>+{groupSharedItems.length - 4} more</Text>
+              )}
+            </View>
             <View style={styles.manageSpacer} />
             <View style={styles.divider} />
             <ManageRow
               icon={<LeaveIcon size={38} />}
-              label="Leave group"
+              label={isRouteOwner ? 'Transfer or delete group' : 'Leave group'}
               danger
               onPress={handleLeaveGroup}
             />
+            {isRouteOwner && (
+              <>
+                <View style={styles.divider} />
+                <ManageRow
+                  icon={<LeaveIcon size={38} />}
+                  label="Delete group"
+                  danger
+                  onPress={handleDeleteGroup}
+                />
+              </>
+            )}
           </View>
         </View>
       );
     }
 
     const isFlashcards = activeTab === 'flashcards';
+    const visibleSharedItems = isFlashcards ? sharedFlashcards : sharedDocuments;
     return (
       <View style={styles.listSection}>
         <Text style={styles.sectionTitle}>
           {isFlashcards ? 'Flashcard Sets' : 'Shared Documents'}
         </Text>
-        <TouchableOpacity style={styles.sharedCard} activeOpacity={0.8}>
-          <View style={styles.sharedIconBox}>
-            {isFlashcards ? (
-              <FlashcardIcon color="#606664" size={34} />
-            ) : (
-              <DocumentIcon color="#2C4936" size={32} />
-            )}
+        {isFetchingSharedItems ? (
+          <View style={styles.inlineLoading}>
+            <ActivityIndicator color="#6F9A78" size="small" />
           </View>
-          <View style={styles.sharedContent}>
-            <View style={styles.titleLine}>
-              <Text style={styles.sharedTitle} numberOfLines={2}>
-                Transformer Attention mechanism Explained
-              </Text>
-              {isFlashcards && <Text style={styles.cardCount}>20 Cards</Text>}
-            </View>
-            <Text style={styles.sharedMeta} numberOfLines={1}>
-              Shared by Duong - 12 hour ago
-            </Text>
-          </View>
-          <ChevronIcon size={23} />
-        </TouchableOpacity>
+        ) : visibleSharedItems.length === 0 ? (
+          <Text style={styles.emptySharedText}>
+            {isFlashcards ? 'No flashcard sets shared yet.' : 'No documents shared yet.'}
+          </Text>
+        ) : (
+          visibleSharedItems.map((item) => (
+            <SharedContentCard
+              key={item.id}
+              item={item}
+              onPress={() => {
+                if (item.item_type === 'document') {
+                  navigation.navigate('DocumentDetails', { documentId: item.item_id });
+                  return;
+                }
+                navigation.navigate('FlashcardDetail', {
+                  flashcardId: item.item_id,
+                  title: item.title,
+                  initialIndex: 0,
+                });
+              }}
+            />
+          ))
+        )}
       </View>
     );
   };
@@ -385,6 +667,12 @@ function GroupDetailScreen() {
       <MemberModal
         visible={memberModalVisible}
         members={members}
+        currentUserId={user?.id}
+        currentUserRole={currentMember?.member_role || (isRouteOwner ? 'owner' : 'member')}
+        isBusy={isChangingMemberRole || isRemovingMember || isTransferringOwnership}
+        onChangeRole={handleChangeMemberRole}
+        onRemoveMember={handleRemoveGroupMember}
+        onTransferOwnership={handleTransferOwnership}
         onClose={() => setMemberModalVisible(false)}
       />
       <InviteModal
@@ -399,6 +687,94 @@ function GroupDetailScreen() {
         onSubmit={handleAddSelectedMembers}
         onClose={closeInviteModal}
       />
+      <ShareItemsModal
+        visible={shareModalVisible}
+        activeTab={sharePickerTab}
+        documents={ownedDocuments}
+        flashcards={ownedFlashcards}
+        sharedKeys={sharedKeys}
+        isLoading={isLoadingOwnedItems}
+        isSubmitting={isSharingItem}
+        onTabChange={setSharePickerTab}
+        onShare={handleShareItem}
+        onRefresh={loadOwnedItems}
+        onClose={() => setShareModalVisible(false)}
+      />
+    </View>
+  );
+}
+
+function SharedContentCard({
+  item,
+  onPress,
+}: {
+  item: GroupSharedItem;
+  onPress: () => void;
+}) {
+  const isFlashcards = item.item_type === 'flashcard';
+  return (
+    <TouchableOpacity style={styles.sharedCard} onPress={onPress} activeOpacity={0.8}>
+      <View style={styles.sharedIconBox}>
+        {isFlashcards ? (
+          <FlashcardIcon color="#606664" size={34} />
+        ) : (
+          <DocumentIcon color="#2C4936" size={32} />
+        )}
+      </View>
+      <View style={styles.sharedContent}>
+        <View style={styles.titleLine}>
+          <Text style={styles.sharedTitle} numberOfLines={2}>
+            {item.title}
+          </Text>
+          {isFlashcards && item.total_cards != null && (
+            <Text style={styles.cardCount}>{item.total_cards} Cards</Text>
+          )}
+        </View>
+        <Text style={styles.sharedMeta} numberOfLines={1}>
+          Shared by {item.shared_by_username}
+        </Text>
+      </View>
+      <ChevronIcon size={23} />
+    </TouchableOpacity>
+  );
+}
+
+function ManageSharedItem({
+  item,
+  canRemove,
+  isRemoving,
+  onRemove,
+}: {
+  item: GroupSharedItem;
+  canRemove: boolean;
+  isRemoving: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <View style={styles.manageSharedRow}>
+      <View style={styles.manageSharedIcon}>
+        {item.item_type === 'document' ? (
+          <DocumentIcon size={20} />
+        ) : (
+          <FlashcardIcon size={21} />
+        )}
+      </View>
+      <View style={styles.manageSharedInfo}>
+        <Text style={styles.manageSharedName} numberOfLines={1}>{item.title}</Text>
+        <Text style={styles.manageSharedMeta} numberOfLines={1}>
+          {item.item_type === 'document' ? 'Document' : `${item.total_cards || 0} cards`}
+        </Text>
+      </View>
+      {canRemove && (
+        <TouchableOpacity
+          style={styles.manageRemoveButton}
+          onPress={onRemove}
+          disabled={isRemoving}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.manageRemoveText}>Remove</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -406,10 +782,22 @@ function GroupDetailScreen() {
 function MemberModal({
   visible,
   members,
+  currentUserId,
+  currentUserRole,
+  isBusy,
+  onChangeRole,
+  onRemoveMember,
+  onTransferOwnership,
   onClose,
 }: {
   visible: boolean;
   members: GroupMember[];
+  currentUserId?: number;
+  currentUserRole: 'owner' | 'admin' | 'member';
+  isBusy: boolean;
+  onChangeRole: (member: GroupMember, nextRole: 'admin' | 'member') => void;
+  onRemoveMember: (member: GroupMember) => void;
+  onTransferOwnership: (member: GroupMember) => void;
   onClose: () => void;
 }) {
   return (
@@ -426,7 +814,17 @@ function MemberModal({
           <FlatList
             data={members}
             keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => <MemberRow member={item} />}
+            renderItem={({ item }) => (
+              <MemberRow
+                member={item}
+                currentUserId={currentUserId}
+                currentUserRole={currentUserRole}
+                isBusy={isBusy}
+                onChangeRole={onChangeRole}
+                onRemoveMember={onRemoveMember}
+                onTransferOwnership={onTransferOwnership}
+              />
+            )}
             ListEmptyComponent={<Text style={styles.emptyModalText}>No members found</Text>}
             showsVerticalScrollIndicator={false}
           />
@@ -436,7 +834,29 @@ function MemberModal({
   );
 }
 
-function MemberRow({ member }: { member: GroupMember }) {
+function MemberRow({
+  member,
+  currentUserId,
+  currentUserRole,
+  isBusy,
+  onChangeRole,
+  onRemoveMember,
+  onTransferOwnership,
+}: {
+  member: GroupMember;
+  currentUserId?: number;
+  currentUserRole: 'owner' | 'admin' | 'member';
+  isBusy: boolean;
+  onChangeRole: (member: GroupMember, nextRole: 'admin' | 'member') => void;
+  onRemoveMember: (member: GroupMember) => void;
+  onTransferOwnership: (member: GroupMember) => void;
+}) {
+  const isSelf = member.user_id === currentUserId;
+  const ownerViewing = currentUserRole === 'owner';
+  const adminViewing = currentUserRole === 'admin';
+  const canOwnerManage = ownerViewing && !isSelf && member.member_role !== 'owner';
+  const canAdminRemove = adminViewing && !isSelf && member.member_role === 'member';
+
   return (
     <View style={styles.memberRow}>
       <View style={styles.memberAvatar}>
@@ -447,7 +867,67 @@ function MemberRow({ member }: { member: GroupMember }) {
         <Text style={styles.memberEmail} numberOfLines={1}>{member.email}</Text>
       </View>
       <Text style={styles.memberRole}>{member.member_role}</Text>
+      {(canOwnerManage || canAdminRemove) && (
+        <View style={styles.memberActions}>
+          {ownerViewing && member.member_role === 'member' && (
+            <SmallActionButton
+              label="Admin"
+              disabled={isBusy}
+              onPress={() => onChangeRole(member, 'admin')}
+            />
+          )}
+          {ownerViewing && member.member_role === 'admin' && (
+            <SmallActionButton
+              label="Member"
+              disabled={isBusy}
+              onPress={() => onChangeRole(member, 'member')}
+            />
+          )}
+          {ownerViewing && (
+            <SmallActionButton
+              label="Transfer"
+              disabled={isBusy}
+              onPress={() => onTransferOwnership(member)}
+            />
+          )}
+          <SmallActionButton
+            label="Remove"
+            danger
+            disabled={isBusy}
+            onPress={() => onRemoveMember(member)}
+          />
+        </View>
+      )}
     </View>
+  );
+}
+
+function SmallActionButton({
+  label,
+  danger,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.memberActionButton,
+        danger && styles.memberActionDanger,
+        disabled && styles.memberActionDisabled,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.75}
+    >
+      <Text style={[styles.memberActionText, danger && styles.memberActionDangerText]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -545,6 +1025,145 @@ function InviteModal({
         </View>
       </View>
     </Modal>
+  );
+}
+
+function ShareItemsModal({
+  visible,
+  activeTab,
+  documents,
+  flashcards,
+  sharedKeys,
+  isLoading,
+  isSubmitting,
+  onTabChange,
+  onShare,
+  onRefresh,
+  onClose,
+}: {
+  visible: boolean;
+  activeTab: SharePickerTab;
+  documents: DocumentListItem[];
+  flashcards: FlashcardListItem[];
+  sharedKeys: Set<string>;
+  isLoading: boolean;
+  isSubmitting: boolean;
+  onTabChange: (tab: SharePickerTab) => void;
+  onShare: (itemType: SharePickerTab, itemId: number) => void;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const data = activeTab === 'document' ? documents : flashcards;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Shared Items</Text>
+            <TouchableOpacity onPress={onClose} style={styles.modalClose} activeOpacity={0.75}>
+              <Text style={styles.modalCloseText}>x</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.shareTabs}>
+            <ShareTabButton
+              label="Documents"
+              active={activeTab === 'document'}
+              onPress={() => onTabChange('document')}
+            />
+            <ShareTabButton
+              label="Flashcards"
+              active={activeTab === 'flashcard'}
+              onPress={() => onTabChange('flashcard')}
+            />
+          </View>
+
+          {isLoading ? (
+            <View style={styles.shareLoading}>
+              <ActivityIndicator color="#6F9A78" size="small" />
+            </View>
+          ) : (
+            <FlatList
+              data={data}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={({ item }) => {
+                const alreadyShared = sharedKeys.has(`${activeTab}:${item.id}`);
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.shareOptionRow,
+                      alreadyShared && styles.shareOptionDisabled,
+                    ]}
+                    onPress={() => onShare(activeTab, item.id)}
+                    disabled={alreadyShared || isSubmitting}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.shareOptionIcon}>
+                      {activeTab === 'document' ? (
+                        <DocumentIcon size={24} />
+                      ) : (
+                        <FlashcardIcon size={25} />
+                      )}
+                    </View>
+                    <View style={styles.shareOptionInfo}>
+                      <Text style={styles.shareOptionTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={styles.shareOptionMeta} numberOfLines={1}>
+                        {activeTab === 'document'
+                          ? item.source_file_name || 'Document'
+                          : `${(item as FlashcardListItem).total_cards} cards`}
+                      </Text>
+                    </View>
+                    <Text style={[
+                      styles.shareOptionAction,
+                      alreadyShared && styles.shareOptionActionDisabled,
+                    ]}>
+                      {alreadyShared ? 'Already shared' : isSubmitting ? 'Sharing...' : 'Share'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.shareEmptyWrap}>
+                  <Text style={styles.emptyModalText}>
+                    {activeTab === 'document'
+                      ? 'No documents available.'
+                      : 'No flashcard sets available.'}
+                  </Text>
+                  <TouchableOpacity onPress={onRefresh} activeOpacity={0.75}>
+                    <Text style={styles.shareRefreshText}>Refresh</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+              style={styles.shareList}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ShareTabButton({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.shareTabButton, active && styles.shareTabButtonActive]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.shareTabText}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -663,6 +1282,7 @@ const styles = StyleSheet.create({
     minHeight: 90,
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 12,
     paddingHorizontal: 12,
     borderRadius: 6,
     backgroundColor: '#C5DBC2',
@@ -767,7 +1387,109 @@ const styles = StyleSheet.create({
   },
   manageSpacer: {
     flex: 1,
-    minHeight: 196,
+    minHeight: 70,
+  },
+  inlineLoading: {
+    minHeight: 90,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptySharedText: {
+    minHeight: 90,
+    paddingTop: 28,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: '#6B776D',
+    textAlign: 'center',
+  },
+  manageSharedBlock: {
+    paddingVertical: 14,
+  },
+  manageSharedHeader: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  manageSharedTitle: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  manageSharedAdd: {
+    minWidth: 58,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: '#DDEBDD',
+  },
+  manageSharedAddText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  manageSharedEmpty: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#6B776D',
+  },
+  manageSharedRow: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  manageSharedIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E3EDE0',
+  },
+  manageSharedInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 10,
+  },
+  manageSharedName: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  manageSharedMeta: {
+    marginTop: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#6B776D',
+  },
+  manageRemoveButton: {
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    backgroundColor: '#F7E5E2',
+  },
+  manageRemoveText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+    color: '#D01818',
+  },
+  manageSharedMore: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    color: '#6F8B73',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -824,6 +1546,7 @@ const styles = StyleSheet.create({
     minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E7DC',
     paddingVertical: 8,
@@ -866,6 +1589,38 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#6F8B73',
     textTransform: 'capitalize',
+  },
+  memberActions: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginTop: 8,
+  },
+  memberActionButton: {
+    minWidth: 58,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    backgroundColor: '#E5F1E2',
+  },
+  memberActionDanger: {
+    backgroundColor: '#F7E5E2',
+  },
+  memberActionDisabled: {
+    opacity: 0.55,
+  },
+  memberActionText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  memberActionDangerText: {
+    color: '#D01818',
   },
   emptyModalText: {
     marginVertical: 22,
@@ -928,6 +1683,92 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  shareTabs: {
+    height: 38,
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  shareTabButton: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: '#E6EDE1',
+  },
+  shareTabButtonActive: {
+    backgroundColor: '#CDE3CB',
+  },
+  shareTabText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  shareLoading: {
+    minHeight: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareList: {
+    maxHeight: 330,
+  },
+  shareOptionRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+  },
+  shareOptionDisabled: {
+    backgroundColor: '#F1F4ED',
+    opacity: 0.75,
+  },
+  shareOptionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E3EDE0',
+  },
+  shareOptionInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 10,
+  },
+  shareOptionTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+    color: '#2C4936',
+  },
+  shareOptionMeta: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#6B776D',
+  },
+  shareOptionAction: {
+    marginLeft: 8,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    color: '#5F8A68',
+  },
+  shareOptionActionDisabled: {
+    color: '#8B968C',
+  },
+  shareEmptyWrap: {
+    alignItems: 'center',
+  },
+  shareRefreshText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#5F8A68',
   },
 });
 

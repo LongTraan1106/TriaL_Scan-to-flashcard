@@ -12,6 +12,9 @@ import {
   CreateGroupRequest,
   UpdateGroupRequest,
   UserSearchResult,
+  GroupSharedItem,
+  ShareGroupItemRequest,
+  GroupMember,
 } from '../types/group';
 
 export const GroupContext = createContext<GroupContextType | undefined>(undefined);
@@ -24,7 +27,8 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   // State
   const [groups, setGroups] = useState<Group[]>([]);
   const [currentGroup, setCurrentGroup] = useState<GroupDetail | null>(null);
-  const [groupMembers, setGroupMembers] = useState<any[]>([]);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [groupSharedItems, setGroupSharedItems] = useState<GroupSharedItem[]>([]);
   const [searchResults, setSearchResults] = useState<Group[]>([]);
   const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
   const [isFetchingGroups, setIsFetchingGroups] = useState(false);
@@ -34,10 +38,14 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const [isAddingMembers, setIsAddingMembers] = useState(false);
   const [isChangingMemberRole, setIsChangingMemberRole] = useState(false);
   const [isRemovingMember, setIsRemovingMember] = useState(false);
+  const [isTransferringOwnership, setIsTransferringOwnership] = useState(false);
   const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
   const [isDeletingGroup, setIsDeletingGroup] = useState(false);
   const [isJoiningGroup, setIsJoiningGroup] = useState(false);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [isFetchingSharedItems, setIsFetchingSharedItems] = useState(false);
+  const [isSharingItem, setIsSharingItem] = useState(false);
+  const [isRemovingSharedItem, setIsRemovingSharedItem] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loading =
@@ -48,10 +56,14 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     isAddingMembers ||
     isChangingMemberRole ||
     isRemovingMember ||
+    isTransferringOwnership ||
     isUpdatingGroup ||
     isDeletingGroup ||
     isJoiningGroup ||
-    isSearchingUsers;
+    isSearchingUsers ||
+    isFetchingSharedItems ||
+    isSharingItem ||
+    isRemovingSharedItem;
 
   // ==================== Create Group ====================
 
@@ -222,6 +234,26 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     [currentGroup, groupMembers]
   );
 
+  const transferOwnership = useCallback(async (groupId: number, targetUserId: number) => {
+    try {
+      setIsTransferringOwnership(true);
+      setError(null);
+
+      const updatedGroup = await groupService.transferOwnership(groupId, targetUserId);
+      setCurrentGroup(updatedGroup);
+      setGroupMembers(updatedGroup.members);
+      setGroups((prev) =>
+        prev.map((g) => (g.id === groupId ? { ...g, ...updatedGroup } : g))
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to transfer ownership';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsTransferringOwnership(false);
+    }
+  }, []);
+
   // ==================== Update Group ====================
 
   const updateGroup = useCallback(async (groupId: number, data: UpdateGroupRequest) => {
@@ -331,6 +363,7 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
   const clearCurrentGroup = useCallback(() => {
     setCurrentGroup(null);
     setGroupMembers([]);
+    setGroupSharedItems([]);
   }, []);
 
   const clearSearchResults = useCallback(() => {
@@ -341,12 +374,63 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     setUserSearchResults([]);
   }, []);
 
+  // ==================== Group Shared Items ====================
+
+  const getGroupSharedItems = useCallback(async (groupId: number) => {
+    try {
+      setIsFetchingSharedItems(true);
+      setError(null);
+
+      const items = await groupService.getGroupSharedItems(groupId);
+      setGroupSharedItems(items);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch shared items';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsFetchingSharedItems(false);
+    }
+  }, []);
+
+  const shareGroupItem = useCallback(async (groupId: number, data: ShareGroupItemRequest) => {
+    try {
+      setIsSharingItem(true);
+      setError(null);
+
+      const items = await groupService.shareGroupItem(groupId, data);
+      setGroupSharedItems(items);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to share item';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsSharingItem(false);
+    }
+  }, []);
+
+  const removeGroupSharedItem = useCallback(async (groupId: number, sharedItemId: number) => {
+    try {
+      setIsRemovingSharedItem(true);
+      setError(null);
+
+      const items = await groupService.removeGroupSharedItem(groupId, sharedItemId);
+      setGroupSharedItems(items);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to remove shared item';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsRemovingSharedItem(false);
+    }
+  }, []);
+
   // ==================== Provider Value ====================
 
   const value: GroupContextType = {
     groups,
     currentGroup,
     groupMembers,
+    groupSharedItems,
     searchResults,
     userSearchResults,
     loading,
@@ -357,10 +441,14 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     isAddingMembers,
     isChangingMemberRole,
     isRemovingMember,
+    isTransferringOwnership,
     isUpdatingGroup,
     isDeletingGroup,
     isJoiningGroup,
     isSearchingUsers,
+    isFetchingSharedItems,
+    isSharingItem,
+    isRemovingSharedItem,
     error,
     createGroup,
     getGroups,
@@ -369,10 +457,14 @@ export const GroupProvider: React.FC<GroupProviderProps> = ({ children }) => {
     addMembers,
     changeMemberRole,
     removeMember,
+    transferOwnership,
     updateGroup,
     deleteGroup,
     joinGroup,
     searchUsers,
+    getGroupSharedItems,
+    shareGroupItem,
+    removeGroupSharedItem,
     clearError,
     clearCurrentGroup,
     clearSearchResults,
