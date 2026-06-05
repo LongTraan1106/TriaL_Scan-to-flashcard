@@ -26,6 +26,7 @@ export interface OCRBlock {
 export interface FlashcardQA {
   question: string;
   answer: string;
+  explain?: string;
 }
 
 export interface FlashcardBlock extends OCRBlock {
@@ -167,6 +168,9 @@ export interface FlashcardListResponse {
 const getApiErrorMessage = (responseData: any, fallback: string) =>
   responseData?.message || responseData?.detail || fallback;
 
+export type DocumentDataDomain = 'documents' | 'flashcards';
+export type DocumentDataChangeListener = (domain: DocumentDataDomain) => void;
+
 const countValidFlashcards = (flashcardData: FlashcardBlock[] = []) =>
   flashcardData.reduce(
     (total, block) =>
@@ -178,6 +182,39 @@ const countValidFlashcards = (flashcardData: FlashcardBlock[] = []) =>
   );
 
 class DocumentService {
+  private documentsCache: DocumentListItem[] | null = null;
+  private documentsRequest: Promise<DocumentListItem[]> | null = null;
+  private flashcardSetsCache = new Map<string, FlashcardListItem[]>();
+  private flashcardSetsRequests = new Map<string, Promise<FlashcardListItem[]>>();
+  private dataChangeListeners = new Set<DocumentDataChangeListener>();
+
+  subscribeToDataChanges(listener: DocumentDataChangeListener): () => void {
+    this.dataChangeListeners.add(listener);
+    return () => {
+      this.dataChangeListeners.delete(listener);
+    };
+  }
+
+  private notifyDataChanged(domain: DocumentDataDomain) {
+    this.dataChangeListeners.forEach(listener => listener(domain));
+  }
+
+  private invalidateDocumentsCache() {
+    this.documentsCache = null;
+    this.documentsRequest = null;
+    this.notifyDataChanged('documents');
+  }
+
+  private invalidateFlashcardsCache() {
+    this.flashcardSetsCache.clear();
+    this.flashcardSetsRequests.clear();
+    this.notifyDataChanged('flashcards');
+  }
+
+  private flashcardCacheKey(documentId?: number): string {
+    return typeof documentId === 'number' ? `document:${documentId}` : 'all';
+  }
+
   /**
    * Process OCR - Upload file (ảnh/PDF) và trích xuất text
    * @param filePath - đường dẫn đến file cần xử lý
@@ -518,6 +555,7 @@ class DocumentService {
         throw new Error(getApiErrorMessage(saveResponse, 'Failed to save flashcards'));
       }
 
+      this.invalidateFlashcardsCache();
       return saveResponse.data;
     } catch (error) {
       console.error('[Flashcard Save Error]:', error);
@@ -525,7 +563,25 @@ class DocumentService {
     }
   }
 
-  async getFlashcardSets(documentId?: number): Promise<FlashcardListItem[]> {
+  async getFlashcardSets(documentId?: number, forceRefresh: boolean = false): Promise<FlashcardListItem[]> {
+    const cacheKey = this.flashcardCacheKey(documentId);
+
+    if (!forceRefresh && this.flashcardSetsCache.has(cacheKey)) {
+      return this.flashcardSetsCache.get(cacheKey) || [];
+    }
+
+    if (!forceRefresh && this.flashcardSetsRequests.has(cacheKey)) {
+      return this.flashcardSetsRequests.get(cacheKey)!;
+    }
+
+    const request = this.fetchFlashcardSets(documentId).finally(() => {
+      this.flashcardSetsRequests.delete(cacheKey);
+    });
+    this.flashcardSetsRequests.set(cacheKey, request);
+    return request;
+  }
+
+  private async fetchFlashcardSets(documentId?: number): Promise<FlashcardListItem[]> {
     try {
       const accessToken = await storageService.getAccessToken();
 
@@ -547,7 +603,9 @@ class DocumentService {
         throw new Error(getApiErrorMessage(listResponse, 'Failed to fetch flashcards'));
       }
 
-      return listResponse.data || [];
+      const data = listResponse.data || [];
+      this.flashcardSetsCache.set(this.flashcardCacheKey(documentId), data);
+      return data;
     } catch (error) {
       console.error('[Flashcard List Error]:', error);
       throw error;
@@ -605,6 +663,15 @@ class DocumentService {
       if (!response.ok) {
         throw new Error(getApiErrorMessage(toggleResponse, 'Failed to update flashcard favorite'));
       }
+      this.flashcardSetsCache.forEach((sets, key) => {
+        this.flashcardSetsCache.set(
+          key,
+          sets.map(set =>
+            set.id === flashcardId ? { ...set, is_favorite: isFavorite } : set
+          )
+        );
+      });
+      this.notifyDataChanged('flashcards');
     } catch (error) {
       console.error('[Flashcard Favorite Error]:', error);
       throw error;
@@ -631,6 +698,7 @@ class DocumentService {
       if (!response.ok) {
         throw new Error(getApiErrorMessage(deleteResponse, 'Failed to delete flashcard set'));
       }
+      this.invalidateFlashcardsCache();
     } catch (error) {
       console.error('[Flashcard Delete Error]:', error);
       throw error;
@@ -702,6 +770,7 @@ class DocumentService {
 
       console.log(`[Document Save] Document saved successfully with ID: ${saveResponse.data.id}`);
 
+      this.invalidateDocumentsCache();
       return saveResponse.data;
     } catch (error) {
       console.error('[Document Save Error]:', error);
@@ -744,7 +813,22 @@ class DocumentService {
    * Get Documents List - Lấy danh sách documents của user
    * @returns array of documents
    */
-  async getDocuments(): Promise<DocumentListItem[]> {
+  async getDocuments(forceRefresh: boolean = false): Promise<DocumentListItem[]> {
+    if (!forceRefresh && this.documentsCache) {
+      return this.documentsCache;
+    }
+
+    if (!forceRefresh && this.documentsRequest) {
+      return this.documentsRequest;
+    }
+
+    this.documentsRequest = this.fetchDocuments().finally(() => {
+      this.documentsRequest = null;
+    });
+    return this.documentsRequest;
+  }
+
+  private async fetchDocuments(): Promise<DocumentListItem[]> {
     try {
       const accessToken = await storageService.getAccessToken();
 
@@ -769,6 +853,7 @@ class DocumentService {
 
       console.log(`[Documents List] Fetched ${listResponse.data.length} documents`);
 
+      this.documentsCache = listResponse.data;
       return listResponse.data;
     } catch (error) {
       console.error('[Documents List Error]:', error);
@@ -841,6 +926,8 @@ class DocumentService {
       }
 
       console.log(`[Document Delete] Document deleted successfully`);
+      this.invalidateDocumentsCache();
+      this.invalidateFlashcardsCache();
     } catch (error) {
       console.error('[Document Delete Error]:', error);
       throw error;
@@ -881,6 +968,14 @@ class DocumentService {
       }
 
       console.log(`[Favorite Toggle] Updated successfully`);
+      if (this.documentsCache) {
+        this.documentsCache = this.documentsCache.map(document =>
+          document.id === documentId
+            ? { ...document, is_favorite: isFavorite }
+            : document
+        );
+      }
+      this.notifyDataChanged('documents');
     } catch (error) {
       console.error('[Favorite Toggle Error]:', error);
       throw error;

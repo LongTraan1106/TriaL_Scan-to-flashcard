@@ -18,23 +18,53 @@ import Pdf from 'react-native-pdf';
 import RNFS from 'react-native-fs';
 import Flashcard_icon from '../assets/icons/flashcard.svg';
 import Summarize_icon from '../assets/icons/doc.svg';
-import Save_icon from '../assets/icons/save.svg';
+import Scan_icon from '../assets/icons/scan.svg';
+import Trash_icon from '../assets/icons/trash_can.svg';
 import { CustomAlertModal, AlertButton } from '../components/CustomAlertModal';
 import { documentService, OCRData, OCRBlock } from '../services/documentService';
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const GALLERY_HEIGHT = SCREEN_HEIGHT * 0.48;
 
+function removeIndexedState<T>(
+  state: {[key: number]: T},
+  removedIndex: number
+): {[key: number]: T} {
+  return Object.keys(state).reduce((next, key) => {
+    const numericKey = Number(key);
+    if (numericKey < removedIndex) {
+      next[numericKey] = state[numericKey];
+    } else if (numericKey > removedIndex) {
+      next[numericKey - 1] = state[numericKey];
+    }
+    return next;
+  }, {} as {[key: number]: T});
+}
+
 function DocumentScanResultScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   
-  const { scannedImages: initialImages = [], pdfData } = route.params || {};
+  const { scannedImages: rawInitialImages = [], pdfData: rawPdfData } = route.params || {};
+  const initialImages = Array.isArray(rawInitialImages)
+    ? rawInitialImages.filter(
+        (uri: any): uri is string => typeof uri === 'string' && uri.length > 0
+      )
+    : [];
+  const pdfData =
+    rawPdfData && typeof rawPdfData.uri === 'string'
+      ? {
+          ...rawPdfData,
+          name: rawPdfData.name || 'document.pdf',
+          size: typeof rawPdfData.size === 'number' ? rawPdfData.size : 0,
+        }
+      : null;
   const [images, setImages] = useState<string[]>(initialImages);
   const [currentPage, setCurrentPage] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [rescanningPageIndex, setRescanningPageIndex] = useState<number | null>(null);
   const [imageLoadErrors, setImageLoadErrors] = useState<{[key: number]: string}>({});
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: number]: boolean}>({});
   const [pdfPages, setPdfPages] = useState<number>(0);
@@ -441,48 +471,6 @@ function DocumentScanResultScreen() {
     }
   };
 
-  const handleSaveDocument = async () => {
-    setIsProcessing(true);
-    try {
-      // Simulate API call
-      await new Promise<void>(resolve => setTimeout(resolve, 1500));
-      setAlertConfig({
-        title: 'Saved',
-        message: `${images.length} page(s) have been saved and will be added to Documents.`,
-        icon: 'OK',
-        buttons: [
-          {
-            text: 'OK',
-            onPress: () => {
-              setAlertModalVisible(false);
-              // Return to the root stack, then open the Documents tab
-              navigation.popToTop();
-              navigation.navigate('TabNavigator', { screen: 'Documents' });
-            },
-            style: 'default',
-          },
-        ],
-      });
-      setAlertModalVisible(true);
-    } catch (error) {
-      setAlertConfig({
-        title: 'Error',
-        message: 'Cannot save document.',
-        icon: '!',
-        buttons: [
-          {
-            text: 'OK',
-            onPress: () => setAlertModalVisible(false),
-            style: 'default',
-          },
-        ],
-      });
-      setAlertModalVisible(true);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   // Save new pages to DocumentDirectoryPath
   const saveImagesToDocuments = async (imageUris: string[]): Promise<string[]> => {
     const documentsDir = RNFS.DocumentDirectoryPath + '/scanned_documents';
@@ -501,6 +489,39 @@ function DocumentScanResultScreen() {
     return savedUris;
   };
 
+  const normalizeScannerResult = (result: any): string[] => {
+    const scannedUris = result?.images || result;
+
+    if (!Array.isArray(scannedUris) || scannedUris.length === 0) {
+      return [];
+    }
+
+    return scannedUris
+      .map((img: any) => {
+        if (typeof img === 'string') return img;
+        if (img?.uri) return img.uri;
+        if (img?.path) return 'file://' + img.path;
+        return img;
+      })
+      .filter((uri: any): uri is string => typeof uri === 'string' && uri.length > 0);
+  };
+
+  const removeLocalImageFile = async (uri?: string) => {
+    if (!uri) return;
+
+    try {
+      const imagePath = uri.startsWith('file://') ? uri.slice(7) : uri;
+      if (
+        imagePath.startsWith(RNFS.DocumentDirectoryPath) &&
+        (await RNFS.exists(imagePath))
+      ) {
+        await RNFS.unlink(imagePath);
+      }
+    } catch (error) {
+      console.warn('Cannot remove scanned image file:', error);
+    }
+  };
+
   // Scan additional pages and append them to the current list
   const handleRescan = () => {
     if (isScanning || isProcessing) return;
@@ -508,20 +529,12 @@ function DocumentScanResultScreen() {
 
     DocumentScanner.launchScanner({}, async (result: any) => {
       try {
-        const scannedUris = result?.images || result;
+        const imageUris = normalizeScannerResult(result);
 
-        if (!Array.isArray(scannedUris) || scannedUris.length === 0) {
+        if (imageUris.length === 0) {
           // User cancelled - no alert needed
           return;
         }
-
-        // Extract string URIs
-        const imageUris = scannedUris.map((img: any) => {
-          if (typeof img === 'string') return img;
-          if (img?.uri) return img.uri;
-          if (img?.path) return 'file://' + img.path;
-          return img;
-        });
 
         // Save and append
         const savedUris = await saveImagesToDocuments(imageUris);
@@ -557,6 +570,105 @@ function DocumentScanResultScreen() {
     });
   };
 
+  const handleRescanPage = (pageIndex: number) => {
+    if (isScanning || isProcessing) return;
+    setIsScanning(true);
+    setRescanningPageIndex(pageIndex);
+
+    DocumentScanner.launchScanner({}, async (result: any) => {
+      try {
+        const imageUris = normalizeScannerResult(result);
+
+        if (imageUris.length === 0) {
+          return;
+        }
+
+        const [savedUri] = await saveImagesToDocuments([imageUris[0]]);
+        const previousUri = images[pageIndex];
+
+        setImages(prev => {
+          if (pageIndex < 0 || pageIndex >= prev.length) {
+            return prev;
+          }
+
+          const updated = [...prev];
+          updated[pageIndex] = savedUri;
+          return updated;
+        });
+        setImageLoadErrors(prev => {
+          const updated = { ...prev };
+          delete updated[pageIndex];
+          return updated;
+        });
+        setImageLoadingStates(prev => ({ ...prev, [pageIndex]: true }));
+        flatListRef.current?.scrollToIndex({ index: pageIndex, animated: true });
+        await removeLocalImageFile(previousUri);
+      } catch (error) {
+        console.error('Error rescanning page:', error);
+        setAlertConfig({
+          title: 'Error',
+          message: 'Cannot replace this page. Please try again.',
+          icon: '!',
+          buttons: [
+            {
+              text: 'OK',
+              onPress: () => setAlertModalVisible(false),
+              style: 'default',
+            },
+          ],
+        });
+        setAlertModalVisible(true);
+      } finally {
+        setIsScanning(false);
+        setRescanningPageIndex(null);
+      }
+    });
+  };
+
+  const handleDeletePage = (pageIndex: number) => {
+    setAlertConfig({
+      title: 'Delete Page',
+      message: `Delete scanned page ${pageIndex + 1}?`,
+      icon: '!',
+      buttons: [
+        {
+          text: 'Cancel',
+          onPress: () => setAlertModalVisible(false),
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          onPress: async () => {
+            setAlertModalVisible(false);
+            const deletedUri = images[pageIndex];
+
+            setImages(prev => {
+              const updated = prev.filter((_, index) => index !== pageIndex);
+              const nextPage = Math.max(0, Math.min(pageIndex, updated.length - 1));
+              setCurrentPage(nextPage);
+
+              if (updated.length > 0) {
+                setTimeout(() => {
+                  flatListRef.current?.scrollToIndex({
+                    index: nextPage,
+                    animated: true,
+                  });
+                }, 150);
+              }
+
+              return updated;
+            });
+            setImageLoadErrors(prev => removeIndexedState(prev, pageIndex));
+            setImageLoadingStates(prev => removeIndexedState(prev, pageIndex));
+            await removeLocalImageFile(deletedUri);
+          },
+          style: 'destructive',
+        },
+      ],
+    });
+    setAlertModalVisible(true);
+  };
+
   const handleCancel = () => {
     setAlertConfig({
       title: 'Cancel Scan',
@@ -585,10 +697,41 @@ function DocumentScanResultScreen() {
   const renderDocumentPage = ({ item, index }: { item: string; index: number }) => {
     const hasError = imageLoadErrors[index];
     const isLoading = imageLoadingStates[index];
+    const isPageBusy = isProcessing || isScanning;
 
     return (
       <View style={styles.pageContainer}>
         <View style={styles.pageWrapper}>
+          <View style={styles.pageActionsOverlay}>
+            <TouchableOpacity
+              style={[
+                styles.pageActionButton,
+                rescanningPageIndex === index && styles.pageActionButtonBusy,
+              ]}
+              onPress={() => handleRescanPage(index)}
+              disabled={isPageBusy}
+              activeOpacity={0.82}
+            >
+              {rescanningPageIndex === index ? (
+                <ActivityIndicator size="small" color="#2D5341" />
+              ) : (
+                <>
+                  <Scan_icon width={15} height={15} />
+                  <Text style={styles.pageActionText}>Rescan</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.pageActionButton, styles.pageDeleteButton]}
+              onPress={() => handleDeletePage(index)}
+              disabled={isPageBusy}
+              activeOpacity={0.82}
+            >
+              <Trash_icon width={13} height={13} />
+              <Text style={[styles.pageActionText, styles.pageDeleteText]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
 
           {hasError ? (
             <View style={styles.errorContent}>
@@ -742,15 +885,6 @@ function DocumentScanResultScreen() {
             <Flashcard_icon width={24} height={24} style={{ marginBottom: 4 }} />
             <Text style={styles.actionButtonText}>Flashcard</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.saveButton, isProcessing && styles.buttonDisabled]}
-            onPress={handleSaveDocument}
-            disabled={isProcessing}
-          >
-            <Save_icon width={24} height={24} style={{ marginBottom: 4 }} />
-            <Text style={styles.actionButtonText}>Save</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Custom Alert Modal */}
@@ -788,6 +922,19 @@ function DocumentScanResultScreen() {
           pagingEnabled
           scrollEventThrottle={16}
           onScroll={handleScroll}
+          getItemLayout={(_, index) => ({
+            length: width,
+            offset: width * index,
+            index,
+          })}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToOffset({
+                offset: width * index,
+                animated: true,
+              });
+            }, 150);
+          }}
           showsHorizontalScrollIndicator={false}
         />
 
@@ -815,10 +962,10 @@ function DocumentScanResultScreen() {
       {/* Info Section */}
       <View style={styles.infoSection}>
         <Text style={styles.infoText}>
-          Scaned {images.length} pages successfully!
+          Scanned {images.length} pages successfully!
         </Text>
         <Text style={styles.infoSubText}>
-          You can summarize, create flashcards, or save this document
+          You can summarize, create flashcards, or adjust individual pages.
         </Text>
       </View>
 
@@ -841,15 +988,6 @@ function DocumentScanResultScreen() {
           <Flashcard_icon width={24} height={24} style={{ marginBottom: 4 }} />
           <Text style={styles.actionButtonText}>Flashcard</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionButton, styles.saveButton, isProcessing && styles.buttonDisabled]}
-          onPress={handleSaveDocument}
-          disabled={isProcessing}
-        >
-          <Save_icon width={24} height={24} style={{ marginBottom: 4 }} />
-          <Text style={styles.actionButtonText}>Save</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Secondary Action */}
@@ -864,7 +1002,7 @@ function DocumentScanResultScreen() {
           disabled={isScanning || isProcessing}
         >
           <Text style={styles.secondaryButtonText}>
-          {isScanning ? 'Scaning...' : 'Scan more pages'}
+          {isScanning ? 'Scanning...' : 'Scan more pages'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -935,6 +1073,49 @@ const styles = StyleSheet.create({
   documentImage: {
     width: '100%',
     height: '100%',
+  },
+  pageActionsOverlay: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pageActionButton: {
+    minWidth: 78,
+    height: 32,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(245, 238, 219, 0.94)',
+    borderWidth: 1,
+    borderColor: 'rgba(107, 144, 113, 0.45)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.14,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  pageActionButtonBusy: {
+    minWidth: 40,
+  },
+  pageDeleteButton: {
+    backgroundColor: 'rgba(255, 246, 244, 0.96)',
+    borderColor: 'rgba(164, 86, 75, 0.34)',
+  },
+  pageActionText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    color: '#2D5341',
+  },
+  pageDeleteText: {
+    color: '#8B3F35',
   },
   pageNumber: {
     position: 'absolute',
@@ -1050,9 +1231,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#AEC3B0',
   },
   flashcardButton: {
-    backgroundColor: '#AEC3B0',
-  },
-  saveButton: {
     backgroundColor: '#AEC3B0',
   },
   actionButtonText: {

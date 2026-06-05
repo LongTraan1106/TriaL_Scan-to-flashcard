@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import StarIcon from '../assets/icons/star.svg';
 import StarFillIcon from '../assets/icons/start_fill.svg';
 import TrashIcon from '../assets/icons/trash_can.svg';
@@ -48,23 +48,13 @@ function DocumentsScreen() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    loadDocuments();
-  }, []);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      loadDocuments();
-    }, [])
-  );
-
   const [searchText, setSearchText] = React.useState('');
 
-  const loadDocuments = async () => {
+  const loadDocuments = React.useCallback(async (forceRefresh: boolean = false) => {
     setIsLoading(true);
     setError(null);
     try {
-      const docs = await documentService.getDocuments();
+      const docs = await documentService.getDocuments(forceRefresh);
       const transformedDocs: Document[] = docs.map(doc => ({
         id: doc.id,
         title: doc.title,
@@ -80,7 +70,16 @@ function DocumentsScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  React.useEffect(() => {
+    loadDocuments();
+    return documentService.subscribeToDataChanges(domain => {
+      if (domain === 'documents') {
+        loadDocuments();
+      }
+    });
+  }, [loadDocuments]);
 
   const filteredDocuments = React.useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -213,7 +212,7 @@ function DocumentsScreen() {
         {error && !isLoading && (
           <View style={styles.centerContent}>
             <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadDocuments}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => loadDocuments(true)}>
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>
           </View>

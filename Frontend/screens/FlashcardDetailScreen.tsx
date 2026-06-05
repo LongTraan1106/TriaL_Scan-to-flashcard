@@ -2,8 +2,10 @@
 import {
   Animated,
   ActivityIndicator,
+  Modal,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,6 +16,10 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAlertModal, AlertButton } from '../components/CustomAlertModal';
 import { documentService, FlashcardBlock, FlashcardSet } from '../services/documentService';
+import { flashcardProgressService } from '../utils/flashcardProgressService';
+import LookupIcon from '../assets/icons/lookup.svg';
+import TickIcon from '../assets/icons/tick.svg';
+import XIcon from '../assets/icons/x.svg';
 
 type CardStatus = 'known' | 'unknown' | null;
 
@@ -21,23 +27,43 @@ interface FlashcardItem {
   id: string;
   question: string;
   answer: string;
-  isFavourite: boolean;
+  explain: string;
   status: CardStatus;
 }
 
 interface ActionButtonProps {
-  label: string;
+  type: 'unknown' | 'lookup' | 'known';
+  label?: string;
   height: number;
-  wideWidth: number;
-  middleWidth: number;
+  width: number;
   labelSize: number;
-  isFavourite?: boolean;
   disabled?: boolean;
   onPress: () => void;
 }
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+const CARD_COLOR_QUEUE = [
+  {
+    question: '#F5F8EC',
+    answer: '#E8F0DB',
+    pill: '#E3EBD7',
+    text: '#173528',
+  },
+  {
+    question: '#EAF2E5',
+    answer: '#D8E7D2',
+    pill: '#D6E2CE',
+    text: '#1F3B2B',
+  },
+  {
+    question: '#DFEBD8',
+    answer: '#C9DDC3',
+    pill: '#C9DABF',
+    text: '#233D2F',
+  },
+];
 
 const flattenFlashcards = (set: Pick<FlashcardSet, 'id' | 'flashcard_data'>): FlashcardItem[] => {
   const cards: FlashcardItem[] = [];
@@ -48,7 +74,7 @@ const flattenFlashcards = (set: Pick<FlashcardSet, 'id' | 'flashcard_data'>): Fl
         id: `${set.id}-${block.page}-${block.group_idx}-${block.box_idx}-${blockIndex}-${cardIndex}`,
         question: card.question,
         answer: card.answer,
-        isFavourite: false,
+        explain: card.explain || '',
         status: null,
       });
     });
@@ -67,6 +93,37 @@ const countValidFlashcards = (flashcardData: FlashcardBlock[] = []) =>
     0,
   );
 
+const cleanLookupSubject = (question = '') => {
+  const normalized = question
+    .replace(/[?!.]+$/g, '')
+    .replace(/^what\s+is\s+/i, '')
+    .replace(/^what\s+are\s+/i, '')
+    .replace(/^explain\s+/i, '')
+    .replace(/^define\s+/i, '')
+    .trim();
+
+  if (!normalized) {
+    return 'this card';
+  }
+
+  return normalized.length > 38 ? `${normalized.slice(0, 35).trim()}...` : normalized;
+};
+
+const getLookupKeywords = (card?: FlashcardItem) => {
+  if (!card) {
+    return [];
+  }
+
+  const source = `${card.question} ${card.answer}`;
+  const words = source
+    .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map(word => word.trim())
+    .filter(word => word.length > 4);
+  const uniqueWords = Array.from(new Set(words));
+  return uniqueWords.slice(0, 3);
+};
+
 function FlashcardDetailScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -83,12 +140,13 @@ function FlashcardDetailScreen() {
   const [isSaved, setIsSaved] = React.useState(!isDraftFlow);
   const [isSaving, setIsSaving] = React.useState(false);
   const [setTitle, setSetTitle] = React.useState(route.params?.title || 'Flashcards');
-  const [setFavourite, setSetFavourite] = React.useState(false);
   const [cards, setCards] = React.useState<FlashcardItem[]>([]);
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [isBackSide, setIsBackSide] = React.useState(false);
+  const [lookupVisible, setLookupVisible] = React.useState(false);
+  const [gestureCardId, setGestureCardId] = React.useState<string | null>(null);
   const [alertModalVisible, setAlertModalVisible] = React.useState(false);
   const [alertConfig, setAlertConfig] = React.useState<{
     title: string;
@@ -103,25 +161,29 @@ function FlashcardDetailScreen() {
   });
   const flipAnim = React.useRef(new Animated.Value(0)).current;
   const pan = React.useRef(new Animated.ValueXY()).current;
+  const isAnimatingSwipeRef = React.useRef(false);
+  const isAnimatingFlipRef = React.useRef(false);
 
   const currentCard = cards[currentIndex];
   const visibleCards = cards.slice(currentIndex, currentIndex + 3);
-  const progress = cards.length > 0 ? currentIndex / cards.length : 0;
+  const cardNumber = cards.length > 0 ? Math.min(currentIndex + 1, cards.length) : 0;
+  const progress = cards.length > 0 ? cardNumber / cards.length : 0;
   const progressPercent = Math.round(progress * 100);
+  const lookupKeywords = getLookupKeywords(currentCard);
 
-  const horizontalPadding = clamp(width * 0.05, 16, 28);
+  const horizontalPadding = clamp(width * 0.06, 18, 30);
   const contentWidth = width - horizontalPadding * 2;
-  const headerTop = Math.max(insets.top + 10, clamp(height * 0.035, 24, 48));
-  const backButtonSize = clamp(width * 0.105, 38, 54);
-  const progressTop = clamp(height * 0.024, 14, 28);
-  const progressHeight = clamp(height * 0.012, 8, 12);
-  const draftSaveHeight = isDraftFlow ? 58 : 0;
-  const deckTop = clamp(height * 0.02, 10, 22);
-  const actionTop = clamp(height * 0.022, 12, 24);
-  const actionHeight = clamp(height * 0.065, 46, 68);
-  const stackOffsetX = clamp(contentWidth * 0.028, 8, 16);
-  const stackOffsetY = clamp(height * 0.012, 8, 14);
-  const cardRightOffset = clamp(contentWidth * 0.055, 16, 32);
+  const headerTop = Math.max(insets.top + 8, clamp(height * 0.026, 18, 34));
+  const backButtonSize = clamp(width * 0.095, 36, 48);
+  const progressTop = clamp(height * 0.016, 10, 18);
+  const progressHeight = clamp(height * 0.009, 6, 9);
+  const draftSaveHeight = isDraftFlow ? 54 : 0;
+  const deckTop = clamp(height * 0.016, 9, 18);
+  const actionTop = clamp(height * 0.014, 8, 16);
+  const actionHeight = clamp(height * 0.082, 62, 82);
+  const stackOffsetX = clamp(contentWidth * 0.035, 10, 18);
+  const stackOffsetY = clamp(height * 0.014, 8, 13);
+  const cardSideInset = clamp(contentWidth * 0.035, 12, 22);
   const availableCardHeight =
     height -
     headerTop -
@@ -134,27 +196,52 @@ function FlashcardDetailScreen() {
     actionTop -
     actionHeight -
     insets.bottom -
-    28;
+    70;
   const cardHeight = clamp(
     availableCardHeight,
-    Math.min(220, height * 0.34),
-    Math.min(480, height * 0.5),
+    Math.min(250, height * 0.32),
+    Math.min(430, height * 0.44),
   );
-  const deckHeight = cardHeight + stackOffsetY * 2;
-  const actionGap = clamp(contentWidth * 0.045, 10, 22);
-  const favouriteButtonWidth = clamp(contentWidth * 0.16, 48, 68);
-  const wideButtonWidth = Math.max(
-    68,
-    (contentWidth - favouriteButtonWidth - actionGap * 2) / 2,
-  );
-  const titleFontSize = clamp(width * 0.064, 22, 30);
-  const cardFontSize = clamp(width * 0.048, 16, 22);
+  const deckHeight = cardHeight + stackOffsetY * 2 + 8;
+  const actionGap = clamp(contentWidth * 0.035, 9, 16);
+  const actionButtonWidth = Math.max(76, (contentWidth - actionGap * 2) / 3);
+  const titleFontSize = clamp(width * 0.058, 21, 28);
+  const cardFontSize = clamp(width * 0.043, 15, 20);
   const cardLineHeight = Math.round(cardFontSize * 1.35);
-  const cardRadius = clamp(width * 0.035, 14, 22);
-  const cardPaddingHorizontal = clamp(width * 0.052, 16, 26);
-  const cardPaddingVertical = clamp(height * 0.028, 18, 30);
-  const actionLabelSize = clamp(actionHeight * 0.54, 26, 40);
+  const cardRadius = clamp(width * 0.038, 14, 24);
+  const cardPaddingHorizontal = clamp(width * 0.048, 16, 24);
+  const cardPaddingVertical = clamp(height * 0.022, 15, 24);
   const progressTextFontSize = clamp(width * 0.038, 13, 16);
+  const stackLiftX = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [-stackOffsetX, 0, -stackOffsetX],
+    extrapolate: 'clamp',
+  });
+  const stackLiftY = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [-stackOffsetY, 0, -stackOffsetY],
+    extrapolate: 'clamp',
+  });
+  const stackLiftScale = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [1, 0.965, 1],
+    extrapolate: 'clamp',
+  });
+  const stackThirdLiftX = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [-stackOffsetX, 0, -stackOffsetX],
+    extrapolate: 'clamp',
+  });
+  const stackThirdLiftY = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [-stackOffsetY, 0, -stackOffsetY],
+    extrapolate: 'clamp',
+  });
+  const stackThirdLiftScale = pan.x.interpolate({
+    inputRange: [-width * 0.24, 0, width * 0.24],
+    outputRange: [0.965, 0.93, 0.965],
+    extrapolate: 'clamp',
+  });
 
   React.useEffect(() => {
     const loadFlashcardDetail = async () => {
@@ -171,10 +258,10 @@ function FlashcardDetailScreen() {
         };
         const nextCards = flattenFlashcards(draftSet);
         setCards(nextCards);
+        setGestureCardId(null);
         setFlashcardData(draftFlashcardData);
         setCurrentIndex(0);
         setSetTitle(route.params?.title || 'Flashcards');
-        setSetFavourite(false);
         setIsLoading(false);
         return;
       }
@@ -189,16 +276,24 @@ function FlashcardDetailScreen() {
       setError(null);
       try {
         const detail = await documentService.getFlashcardDetail(savedFlashcardId);
-        const nextCards = flattenFlashcards(detail);
+        const rawCards = flattenFlashcards(detail);
+        const progress = await flashcardProgressService.getProgress(
+          savedFlashcardId,
+          rawCards.length,
+        );
+        const nextCards = rawCards.map(card => ({
+          ...card,
+          status: progress.statuses[card.id] || null,
+        }));
         const safeInitialIndex = Math.min(
           Number(route.params?.initialIndex) || 0,
           nextCards.length,
         );
         setCards(nextCards);
+        setGestureCardId(null);
         setFlashcardData(detail.flashcard_data);
         setCurrentIndex(safeInitialIndex);
         setSetTitle(detail.title);
-        setSetFavourite(detail.is_favorite);
         setIsSaved(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Cannot load flashcard set';
@@ -215,14 +310,24 @@ function FlashcardDetailScreen() {
     flipAnim.setValue(0);
     setIsBackSide(false);
     pan.setValue({ x: 0, y: 0 });
+    setGestureCardId(null);
   }, [currentIndex, flipAnim, pan]);
 
   const completeCurrentCard = React.useCallback(
     (status: Exclude<CardStatus, null>, direction: 'left' | 'right') => {
-      if (!currentCard) {
+      if (!currentCard || isAnimatingSwipeRef.current) {
         return;
       }
 
+      isAnimatingSwipeRef.current = true;
+      setGestureCardId(currentCard.id);
+      if (!isDraftFlow && savedFlashcardId) {
+        flashcardProgressService
+          .markCard(savedFlashcardId, currentCard.id, status, cards.length)
+          .catch(error => {
+            console.error('[Flashcard Progress] Cannot save card status:', error);
+          });
+      }
       setCards(prevCards =>
         prevCards.map(card =>
           card.id === currentCard.id ? { ...card, status } : card,
@@ -234,11 +339,12 @@ function FlashcardDetailScreen() {
         duration: 220,
         useNativeDriver: true,
       }).start(() => {
+        setGestureCardId(null);
         setCurrentIndex(index => Math.min(index + 1, cards.length));
-        pan.setValue({ x: 0, y: 0 });
+        isAnimatingSwipeRef.current = false;
       });
     },
-    [cards.length, currentCard, pan, width],
+    [cards.length, currentCard, isDraftFlow, pan, savedFlashcardId, width],
   );
 
   const panResponder = React.useMemo(
@@ -246,6 +352,11 @@ function FlashcardDetailScreen() {
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
           Math.abs(gesture.dx) > 8 || Math.abs(gesture.dy) > 8,
+        onPanResponderGrant: () => {
+          if (currentCard) {
+            setGestureCardId(currentCard.id);
+          }
+        },
         onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
           useNativeDriver: false,
         }),
@@ -268,15 +379,22 @@ function FlashcardDetailScreen() {
           }).start();
         },
       }),
-    [completeCurrentCard, pan, width],
+    [completeCurrentCard, currentCard, pan, width],
   );
 
   const handleFlipCard = () => {
+    if (!currentCard || isAnimatingSwipeRef.current || isAnimatingFlipRef.current) {
+      return;
+    }
+
+    isAnimatingFlipRef.current = true;
     Animated.timing(flipAnim, {
       toValue: isBackSide ? 0 : 1,
-      duration: 360,
+      duration: 320,
       useNativeDriver: true,
-    }).start();
+    }).start(() => {
+      isAnimatingFlipRef.current = false;
+    });
     setIsBackSide(value => !value);
   };
 
@@ -307,7 +425,6 @@ function FlashcardDetailScreen() {
       );
       setSavedFlashcardId(savedSet.id);
       setSetTitle(savedSet.title);
-      setSetFavourite(savedSet.is_favorite);
       setIsSaved(true);
       return savedSet.id;
     } finally {
@@ -468,18 +585,6 @@ function FlashcardDetailScreen() {
     }
   };
 
-  const handleToggleFavourite = () => {
-    if (!savedFlashcardId || !isSaved) {
-      return;
-    }
-
-    const nextValue = !setFavourite;
-    setSetFavourite(nextValue);
-    documentService.toggleFlashcardFavorite(savedFlashcardId, nextValue).catch(() => {
-      setSetFavourite(!nextValue);
-    });
-  };
-
   const frontRotate = flipAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '180deg'],
@@ -487,6 +592,14 @@ function FlashcardDetailScreen() {
   const backRotate = flipAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['180deg', '360deg'],
+  });
+  const frontOpacity = flipAnim.interpolate({
+    inputRange: [0, 0.48, 0.5, 1],
+    outputRange: [1, 1, 0, 0],
+  });
+  const backOpacity = flipAnim.interpolate({
+    inputRange: [0, 0.5, 0.52, 1],
+    outputRange: [0, 0, 1, 1],
   });
   const swipeRotate = pan.x.interpolate({
     inputRange: [-width, 0, width],
@@ -496,37 +609,44 @@ function FlashcardDetailScreen() {
   return (
     <View style={[styles.container, { paddingHorizontal: horizontalPadding }]}>
       <View style={[styles.header, { marginTop: headerTop }]}>
-        <TouchableOpacity
-          style={[
-            styles.backButton,
-            {
-              width: backButtonSize,
-              height: backButtonSize,
-              borderRadius: backButtonSize * 0.28,
-            },
-          ]}
-          activeOpacity={0.8}
-          onPress={handleBackPress}
-        >
-          <Text
+        <View style={[styles.headerSide, { width: backButtonSize + 28 }]}>
+          <TouchableOpacity
             style={[
-              styles.backIcon,
+              styles.backButton,
               {
-                fontSize: backButtonSize * 0.68,
-                lineHeight: backButtonSize * 0.68,
+                width: backButtonSize,
+                height: backButtonSize,
+                borderRadius: backButtonSize * 0.28,
               },
             ]}
+            activeOpacity={0.8}
+            onPress={handleBackPress}
           >
-            {'<'}
+            <Text
+              style={[
+                styles.backIcon,
+                {
+                  fontSize: backButtonSize * 0.68,
+                  lineHeight: backButtonSize * 0.68,
+                },
+              ]}
+            >
+              {'<'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.titleBlock}>
+          <Text
+            style={[styles.title, { fontSize: titleFontSize }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {setTitle}
           </Text>
-        </TouchableOpacity>
-        <Text
-          style={[styles.title, { fontSize: titleFontSize }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-        >
-          {setTitle}
-        </Text>
+          <Text style={styles.cardCounter}>
+            {cards.length > 0 ? `Card ${cardNumber} of ${cards.length}` : setTitle}
+          </Text>
+        </View>
         <TouchableOpacity
           style={[styles.doneButton, { width: backButtonSize + 28 }]}
           activeOpacity={0.8}
@@ -608,39 +728,98 @@ function FlashcardDetailScreen() {
           visibleCards
             .map((card, stackIndex) => {
               const isTopCard = stackIndex === 0;
-              const stackStyle =
-                stackIndex === 0
-                  ? styles.stackCard0
-                  : stackIndex === 1
-                  ? styles.stackCard1
-                  : styles.stackCard2;
+              const cardTheme = CARD_COLOR_QUEUE[(currentIndex + stackIndex) % CARD_COLOR_QUEUE.length];
+              const cardBaseInset = cardSideInset / 2;
+              const isGestureCard = gestureCardId === card.id;
+              const isTopGestureActive = gestureCardId === currentCard?.id;
+              const stackOneTransform = isTopGestureActive
+                ? [
+                    { translateX: stackLiftX },
+                    { translateY: stackLiftY },
+                    { scale: stackLiftScale },
+                  ]
+                : [{ scale: 0.965 }];
+              const stackTwoTransform = isTopGestureActive
+                ? [
+                    { translateX: stackThirdLiftX },
+                    { translateY: stackThirdLiftY },
+                    { scale: stackThirdLiftScale },
+                  ]
+                : [{ scale: 0.93 }];
               const dynamicStackStyle =
                 stackIndex === 0
-                  ? { right: cardRightOffset }
+                  ? {
+                      top: 0,
+                      left: cardBaseInset,
+                      right: cardBaseInset,
+                      zIndex: 3,
+                    }
                   : stackIndex === 1
                   ? {
                       top: stackOffsetY,
-                      left: stackOffsetX,
-                      right: cardRightOffset / 2,
+                      left: cardBaseInset + stackOffsetX,
+                      right: cardBaseInset - stackOffsetX,
+                      zIndex: 2,
+                      transform: stackOneTransform,
                     }
                   : {
                       top: stackOffsetY * 2,
-                      left: stackOffsetX * 2,
-                      right: 0,
+                      left: cardBaseInset + stackOffsetX * 2,
+                      right: cardBaseInset - stackOffsetX * 2,
+                      zIndex: 1,
+                      transform: stackTwoTransform,
                     };
               const cardStyle = [
                 styles.flashcard,
-                stackStyle,
+                styles.stackCard,
                 {
                   height: cardHeight,
                   borderRadius: cardRadius,
+                  backgroundColor: cardTheme.question,
                 },
                 dynamicStackStyle,
               ];
 
               if (!isTopCard) {
                 return (
-                  <View key={card.id} pointerEvents="none" style={cardStyle} />
+                  <Animated.View key={card.id} pointerEvents="none" style={cardStyle}>
+                    <View
+                      style={[
+                        styles.previewCardFace,
+                        {
+                          borderRadius: cardRadius,
+                          backgroundColor: cardTheme.question,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.previewFacePill,
+                          {
+                            top: cardPaddingVertical,
+                            fontSize: clamp(width * 0.03, 11, 13),
+                            backgroundColor: cardTheme.pill,
+                            color: cardTheme.text,
+                          },
+                        ]}
+                      >
+                        ?  Question
+                      </Text>
+                      <Text
+                        style={[
+                          styles.previewCardText,
+                          {
+                            fontSize: cardFontSize,
+                            lineHeight: cardLineHeight,
+                            color: cardTheme.text,
+                          },
+                        ]}
+                        numberOfLines={4}
+                      >
+                        {card.question}
+                      </Text>
+                    </View>
+                  </Animated.View>
                 );
               }
 
@@ -649,7 +828,7 @@ function FlashcardDetailScreen() {
                   key={card.id}
                   style={[
                     cardStyle,
-                    {
+                    isGestureCard && {
                       transform: [
                         { translateX: pan.x },
                         { translateY: pan.y },
@@ -668,17 +847,24 @@ function FlashcardDetailScreen() {
                           borderRadius: cardRadius,
                           paddingHorizontal: cardPaddingHorizontal,
                           paddingVertical: cardPaddingVertical,
-                          transform: [{ rotateY: frontRotate }],
+                          backgroundColor: cardTheme.question,
+                          opacity: frontOpacity,
+                          transform: [{ perspective: 1000 }, { rotateY: frontRotate }],
                         },
                       ]}
                     >
                       <Text
                         style={[
-                          styles.faceLabel,
-                          { top: cardPaddingVertical, fontSize: clamp(width * 0.028, 10, 13) },
+                          styles.facePill,
+                          {
+                            top: cardPaddingVertical,
+                            fontSize: clamp(width * 0.034, 12, 15),
+                            backgroundColor: cardTheme.pill,
+                            color: cardTheme.text,
+                          },
                         ]}
                       >
-                        QUESTION
+                        ?  Question
                       </Text>
                       <Text
                         style={[
@@ -686,6 +872,7 @@ function FlashcardDetailScreen() {
                           {
                             fontSize: cardFontSize,
                             lineHeight: cardLineHeight,
+                            color: cardTheme.text,
                           },
                         ]}
                       >
@@ -700,17 +887,24 @@ function FlashcardDetailScreen() {
                           borderRadius: cardRadius,
                           paddingHorizontal: cardPaddingHorizontal,
                           paddingVertical: cardPaddingVertical,
-                          transform: [{ rotateY: backRotate }],
+                          backgroundColor: cardTheme.answer,
+                          opacity: backOpacity,
+                          transform: [{ perspective: 1000 }, { rotateY: backRotate }],
                         },
                       ]}
                     >
                       <Text
                         style={[
-                          styles.faceLabel,
-                          { top: cardPaddingVertical, fontSize: clamp(width * 0.028, 10, 13) },
+                          styles.facePill,
+                          {
+                            top: cardPaddingVertical,
+                            fontSize: clamp(width * 0.034, 12, 15),
+                            backgroundColor: cardTheme.pill,
+                            color: cardTheme.text,
+                          },
                         ]}
                       >
-                        ANSWER
+                        Answer
                       </Text>
                       <Text
                         style={[
@@ -718,6 +912,7 @@ function FlashcardDetailScreen() {
                           {
                             fontSize: cardFontSize,
                             lineHeight: cardLineHeight,
+                            color: cardTheme.text,
                           },
                         ]}
                       >
@@ -734,43 +929,107 @@ function FlashcardDetailScreen() {
 
       <View
         style={[
-          styles.actions,
-          {
-            marginTop: actionTop,
-            columnGap: actionGap,
-            paddingBottom: Math.max(insets.bottom, 12),
-          },
+          styles.actionSection,
+          { marginTop: actionTop, paddingBottom: Math.max(insets.bottom, 12) },
         ]}
       >
+        <Text style={styles.actionHint}>Choose an action after reviewing the card</Text>
+        <View
+          style={[
+          styles.actions,
+          {
+            columnGap: actionGap,
+          },
+          ]}
+        >
         <ActionButton
-          label="x"
+          type="unknown"
           height={actionHeight}
-          wideWidth={wideButtonWidth}
-          middleWidth={favouriteButtonWidth}
-          labelSize={actionLabelSize}
+          width={actionButtonWidth}
+          labelSize={clamp(actionHeight * 0.2, 15, 20)}
           onPress={() => completeCurrentCard('unknown', 'left')}
           disabled={!currentCard}
         />
         <ActionButton
-          label={setFavourite ? '*' : '+'}
+          type="lookup"
+          label="Look up"
           height={actionHeight}
-          wideWidth={wideButtonWidth}
-          middleWidth={favouriteButtonWidth}
-          labelSize={actionLabelSize}
-          isFavourite={setFavourite}
-          onPress={handleToggleFavourite}
-          disabled={!savedFlashcardId || !isSaved}
+          width={actionButtonWidth}
+          labelSize={clamp(actionHeight * 0.2, 15, 20)}
+          onPress={() => setLookupVisible(true)}
+          disabled={!currentCard}
         />
         <ActionButton
-          label="v"
+          type="known"
           height={actionHeight}
-          wideWidth={wideButtonWidth}
-          middleWidth={favouriteButtonWidth}
-          labelSize={actionLabelSize}
+          width={actionButtonWidth}
+          labelSize={clamp(actionHeight * 0.2, 15, 20)}
           onPress={() => completeCurrentCard('known', 'right')}
           disabled={!currentCard}
         />
+        </View>
       </View>
+
+      <Modal
+        visible={lookupVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLookupVisible(false)}
+      >
+        <View style={styles.lookupOverlay}>
+          <View style={[styles.lookupModal, { width: clamp(width * 0.84, 286, 360) }]}>
+            <TouchableOpacity
+              style={styles.lookupCloseIcon}
+              activeOpacity={0.75}
+              onPress={() => setLookupVisible(false)}
+            >
+              <XIcon width={18} height={18} />
+            </TouchableOpacity>
+            <View style={styles.lookupIconBox}>
+              <LookupIcon width={24} height={24} />
+            </View>
+            <Text style={styles.lookupTitle}>Look up</Text>
+            <Text style={styles.lookupSubtitle}>
+              About {cleanLookupSubject(currentCard?.question)}
+            </Text>
+            <ScrollView
+              style={styles.lookupScroll}
+              contentContainerStyle={styles.lookupScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.lookupBody}>
+                {currentCard?.explain || 'No explanation available for this card yet. Please regenerate this flashcard set to create lookup explanations.'}
+              </Text>
+              {lookupKeywords.length > 0 ? (
+                <View style={styles.lookupKeywords}>
+                  {lookupKeywords.map(keyword => (
+                    <View key={keyword} style={styles.lookupKeywordPill}>
+                      <Text style={styles.lookupKeywordText}>{keyword}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </ScrollView>
+            <View style={styles.lookupDivider} />
+            <View style={styles.lookupActions}>
+              <TouchableOpacity
+                style={styles.lookupSecondaryButton}
+                activeOpacity={0.8}
+                onPress={() => setLookupVisible(false)}
+              >
+                <Text style={styles.lookupSecondaryText}>Close</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.lookupPrimaryButton}
+                activeOpacity={0.85}
+                onPress={() => setLookupVisible(false)}
+              >
+                <Text style={styles.lookupPrimaryText}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <CustomAlertModal
         visible={alertModalVisible}
@@ -785,41 +1044,53 @@ function FlashcardDetailScreen() {
 }
 
 function ActionButton({
+  type,
   label,
   height,
-  wideWidth,
-  middleWidth,
+  width,
   labelSize,
-  isFavourite,
   disabled,
   onPress,
 }: ActionButtonProps) {
-  const isFavouriteButton = label === '+' || label === '*';
+  const iconSize = type === 'lookup' ? height * 0.46 : height * 0.46;
 
   return (
     <TouchableOpacity
       style={[
         styles.actionButton,
+        type === 'lookup' && styles.actionButtonLookup,
         {
           height,
-          width: isFavouriteButton ? middleWidth : wideWidth,
+          width,
           borderRadius: height * 0.16,
         },
-        isFavourite && styles.actionButtonFavourite,
         disabled && styles.actionButtonDisabled,
       ]}
       activeOpacity={0.85}
       disabled={disabled}
       onPress={onPress}
     >
-      <Text
-        style={[
-          styles.actionLabel,
-          { fontSize: labelSize, lineHeight: labelSize + 6 },
-        ]}
-      >
-        {label}
-      </Text>
+      {type === 'lookup' ? (
+        <View style={[styles.actionLookupIcon, { width: iconSize, height: iconSize, borderRadius: iconSize / 2 }]}>
+          <LookupIcon width={iconSize * 0.52} height={iconSize * 0.52} />
+        </View>
+      ) : type === 'known' ? (
+        <TickIcon width={iconSize * 1.18} height={iconSize * 0.8} />
+      ) : (
+        <XIcon width={iconSize} height={iconSize} />
+      )}
+      {label ? (
+        <Text
+          style={[
+            styles.actionLabel,
+            { fontSize: labelSize, lineHeight: labelSize + 4 },
+          ]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+        >
+          {label}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -834,6 +1105,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  headerSide: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
   backButton: {
     borderWidth: 3,
     borderColor: '#344E39',
@@ -845,10 +1120,21 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
   title: {
-    flex: 1,
     textAlign: 'center',
     fontWeight: '800',
-    color: '#000000',
+    color: '#173528',
+  },
+  titleBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  cardCounter: {
+    marginTop: 3,
+    fontSize: 15,
+    color: '#52634F',
+    fontWeight: '500',
   },
   doneButton: {
     alignItems: 'flex-end',
@@ -894,26 +1180,21 @@ const styles = StyleSheet.create({
   },
   progressText: {
     width: 56,
-    marginLeft: 15,
+    marginLeft: 12,
     fontSize: 20,
     color: '#4D5A4D',
   },
   deck: {},
   flashcard: {
     position: 'absolute',
-    left: 0,
   },
-  stackCard0: {
-    backgroundColor: '#83A385',
-    zIndex: 3,
-  },
-  stackCard1: {
-    backgroundColor: '#8C9F82',
-    zIndex: 2,
-  },
-  stackCard2: {
-    backgroundColor: '#344E39',
-    zIndex: 1,
+  stackCard: {
+    backgroundColor: '#F2F7E9',
+    shadowColor: '#314331',
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 6,
   },
   cardPressArea: {
     flex: 1,
@@ -923,24 +1204,51 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backfaceVisibility: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.82)',
   },
-  cardFront: {
-    backgroundColor: '#83A385',
+  cardFront: {},
+  cardBack: {},
+  previewCardFace: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
   },
-  cardBack: {
-    backgroundColor: '#AEC3B0',
-  },
-  faceLabel: {
+  facePill: {
     position: 'absolute',
-    top: 32,
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#2D5341',
+    overflow: 'hidden',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: '#E4ECD8',
+    fontWeight: '600',
+    color: '#304A36',
+  },
+  previewFacePill: {
+    position: 'absolute',
+    overflow: 'hidden',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 11,
+    backgroundColor: '#E4ECD8',
+    fontWeight: '600',
+    color: '#304A36',
+    opacity: 0.72,
   },
   cardText: {
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#173528',
     textAlign: 'center',
+  },
+  previewCardText: {
+    width: '78%',
+    fontWeight: '800',
+    color: '#173528',
+    textAlign: 'center',
+    opacity: 0.34,
   },
   finishedCard: {
     backgroundColor: '#AEC3B0',
@@ -957,25 +1265,171 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#344E39',
   },
+  actionSection: {
+    alignItems: 'center',
+  },
+  actionHint: {
+    marginBottom: 12,
+    color: '#52634F',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
   actions: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
   actionButton: {
-    backgroundColor: '#C1D2C3',
+    backgroundColor: '#F0F5E8',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D4DDCA',
+    shadowColor: '#314331',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
-  actionButtonFavourite: {
-    backgroundColor: '#D5E3C6',
+  actionButtonLookup: {
+    backgroundColor: '#DDE9D9',
   },
   actionButtonDisabled: {
     opacity: 0.45,
   },
+  actionLookupIcon: {
+    marginBottom: 4,
+    backgroundColor: '#557A4F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionLabel: {
+    marginTop: 5,
     color: '#344E39',
-    fontWeight: '300',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  lookupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(20, 26, 20, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  lookupModal: {
+    maxHeight: '72%',
+    borderRadius: 22,
+    backgroundColor: '#F6FAEE',
+    paddingTop: 28,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    shadowColor: '#111911',
+    shadowOpacity: 0.2,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 14,
+  },
+  lookupCloseIcon: {
+    position: 'absolute',
+    right: 18,
+    top: 16,
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  lookupIconBox: {
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#557A4F',
+    marginBottom: 12,
+  },
+  lookupTitle: {
+    color: '#173528',
+    fontSize: 28,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  lookupSubtitle: {
+    marginTop: 6,
+    color: '#63705F',
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  lookupScroll: {
+    marginTop: 16,
+  },
+  lookupScrollContent: {
+    paddingBottom: 8,
+  },
+  lookupBody: {
+    color: '#213C2D',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  lookupKeywords: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 16,
+    gap: 7,
+  },
+  lookupKeywordPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#E2EAD7',
+  },
+  lookupKeywordText: {
+    color: '#263B2D',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  lookupDivider: {
+    marginTop: 14,
+    marginBottom: 14,
+    height: 1,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: '#D1DCC7',
+  },
+  lookupActions: {
+    flexDirection: 'row',
+    columnGap: 12,
+  },
+  lookupSecondaryButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#5D725D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lookupPrimaryButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#344E39',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lookupSecondaryText: {
+    color: '#304A36',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  lookupPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

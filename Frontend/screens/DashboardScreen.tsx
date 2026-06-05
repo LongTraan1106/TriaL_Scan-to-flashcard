@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import {
   documentService,
@@ -25,19 +25,18 @@ type HistoryDocument = DocumentListItem & {
 
 function DashboardScreen() {
   const navigation = useNavigation<any>();
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [historyData, setHistoryData] = React.useState<HistoryDocument[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = React.useState(false);
   const [historyError, setHistoryError] = React.useState<string | null>(null);
 
-  const loadDashboardData = React.useCallback(async () => {
+  const loadDashboardData = React.useCallback(async (forceRefresh: boolean = false) => {
     setIsLoadingHistory(true);
     setHistoryError(null);
     try {
-      await refreshUser();
       const [documents, flashcardSets] = await Promise.all([
-        documentService.getDocuments(),
-        documentService.getFlashcardSets(),
+        documentService.getDocuments(forceRefresh),
+        documentService.getFlashcardSets(undefined, forceRefresh),
       ]);
 
       const flashcardDocumentIds = new Set(
@@ -59,13 +58,16 @@ function DashboardScreen() {
     } finally {
       setIsLoadingHistory(false);
     }
-  }, [refreshUser]);
+  }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      loadDashboardData();
-    }, [loadDashboardData])
-  );
+  React.useEffect(() => {
+    loadDashboardData();
+    return documentService.subscribeToDataChanges(domain => {
+      if (domain === 'documents' || domain === 'flashcards') {
+        loadDashboardData();
+      }
+    });
+  }, [loadDashboardData]);
 
   const handleNavigateToDocuments = () => {
     navigation.navigate('Documents');
@@ -125,7 +127,7 @@ function DashboardScreen() {
           ) : historyError ? (
             <View style={styles.historyState}>
               <Text style={styles.historyStateText}>{historyError}</Text>
-              <TouchableOpacity style={styles.retryButton} onPress={loadDashboardData}>
+              <TouchableOpacity style={styles.retryButton} onPress={() => loadDashboardData(true)}>
                 <Text style={styles.retryButtonText}>Retry</Text>
               </TouchableOpacity>
             </View>
@@ -376,7 +378,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#344E39',
-    textAlign: "center"
+    // textAlign: "center"
   },
   viewAllText: {
     color: '#344E39',

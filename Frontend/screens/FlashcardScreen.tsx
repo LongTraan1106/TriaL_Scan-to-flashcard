@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FlashcardIcon from '../assets/icons/flashcard.svg';
 import StarIcon from '../assets/icons/star.svg';
@@ -18,6 +18,10 @@ import StarFillIcon from '../assets/icons/start_fill.svg';
 import TrashIcon from '../assets/icons/trash_can.svg';
 import { CustomAlertModal, AlertButton } from '../components/CustomAlertModal';
 import { documentService, FlashcardListItem } from '../services/documentService';
+import {
+  flashcardProgressService,
+  FlashcardSetProgress,
+} from '../utils/flashcardProgressService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const clamp = (value: number, min: number, max: number) =>
@@ -46,6 +50,7 @@ function FlashcardScreen() {
   const [activeSection, setActiveSection] =
     React.useState<FlashcardSection>('all');
   const [sets, setSets] = React.useState<FlashcardListItem[]>([]);
+  const [progressBySet, setProgressBySet] = React.useState<Record<number, FlashcardSetProgress>>({});
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [deletingId, setDeletingId] = React.useState<number | null>(null);
@@ -63,12 +68,14 @@ function FlashcardScreen() {
     buttons: [],
   });
 
-  const loadFlashcards = React.useCallback(async () => {
+  const loadFlashcards = React.useCallback(async (forceRefresh: boolean = false) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await documentService.getFlashcardSets();
+      const data = await documentService.getFlashcardSets(undefined, forceRefresh);
       setSets(data);
+      const progressMap = await flashcardProgressService.getProgressMap(data);
+      setProgressBySet(progressMap);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Cannot load flashcards';
       setError(message);
@@ -77,11 +84,24 @@ function FlashcardScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      loadFlashcards();
-    }, [loadFlashcards])
-  );
+  React.useEffect(() => {
+    loadFlashcards();
+    const unsubscribeData = documentService.subscribeToDataChanges(domain => {
+      if (domain === 'flashcards') {
+        loadFlashcards();
+      }
+    });
+    const unsubscribeProgress = flashcardProgressService.subscribe((setId, progress) => {
+      setProgressBySet(current => ({
+        ...current,
+        [setId]: progress,
+      }));
+    });
+    return () => {
+      unsubscribeData();
+      unsubscribeProgress();
+    };
+  }, [loadFlashcards]);
 
   const [searchText, setSearchText] = React.useState('');
 
@@ -179,7 +199,13 @@ function FlashcardScreen() {
             try {
               setDeletingId(set.id);
               await documentService.deleteFlashcardSet(set.id);
+              await flashcardProgressService.clearProgress(set.id);
               setSets(current => current.filter(item => item.id !== set.id));
+              setProgressBySet(current => {
+                const next = { ...current };
+                delete next[set.id];
+                return next;
+              });
             } catch (err) {
               const message = err instanceof Error ? err.message : 'Cannot delete flashcard set';
               showError(message);
@@ -248,7 +274,7 @@ function FlashcardScreen() {
         ) : error ? (
           <View style={styles.centerState}>
             <Text style={styles.stateText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadFlashcards}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => loadFlashcards(true)}>
               <Text style={styles.retryText}>Retry</Text>
             </TouchableOpacity>
           </View>
@@ -262,6 +288,7 @@ function FlashcardScreen() {
               <FlashcardSetItem
                 key={set.id}
                 set={set}
+                progress={progressBySet[set.id]}
                 deleting={deletingId === set.id}
                 updatingFavorite={updatingFavoriteId === set.id}
                 onPress={() => handleOpenSet(set)}
@@ -318,6 +345,7 @@ function SegmentButton({
 
 function FlashcardSetItem({
   set,
+  progress,
   deleting,
   updatingFavorite,
   onPress,
@@ -325,12 +353,20 @@ function FlashcardSetItem({
   onDelete,
 }: {
   set: FlashcardListItem;
+  progress?: FlashcardSetProgress;
   deleting: boolean;
   updatingFavorite: boolean;
   onPress: () => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
 }) {
+  const knownCount = progress?.knownCount || 0;
+  const totalCards = set.total_cards || progress?.totalCards || 0;
+  const progressPercent = totalCards > 0
+    ? Math.round((knownCount / totalCards) * 100)
+    : 0;
+  const studiedCount = progress?.studiedCount || 0;
+
   return (
     <TouchableOpacity
       style={styles.setCard}
@@ -345,10 +381,22 @@ function FlashcardSetItem({
         <Text style={styles.setTitle} numberOfLines={2}>
           {set.title}
         </Text>
-        <Text style={styles.setMeta} numberOfLines={1}>
-          {set.total_cards} cards
-          {set.source_file_name ? ` | ${set.source_file_name}` : ''}
-        </Text>
+        <View style={styles.setMetaRow}>
+          <Text
+            style={[styles.setMeta, styles.setMetaPrimary]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            Known {knownCount}/{totalCards}
+          </Text>
+          <Text
+            style={styles.setMeta}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {studiedCount ? `${progressPercent}% mastered` : 'Not studied'}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.actionsContainer}>
@@ -517,6 +565,7 @@ const styles = StyleSheet.create({
   setIconWrap: {
     width: SET_ICON_BOX,
     height: SET_ICON_BOX,
+    flexShrink: 0,
     borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
@@ -525,6 +574,7 @@ const styles = StyleSheet.create({
   },
   setInfo: {
     flex: 1,
+    flexShrink: 1,
     minWidth: 0,
     paddingRight: 10,
   },
@@ -534,16 +584,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1B3A2D',
   },
-  setMeta: {
+  setMetaRow: {
     marginTop: 5,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: 8,
+    rowGap: 2,
+  },
+  setMeta: {
+    maxWidth: '100%',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
     color: '#344E39',
   },
+  setMetaPrimary: {
+    flexShrink: 1,
+  },
   actionsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
     gap: 6,
   },
   actionButton: {

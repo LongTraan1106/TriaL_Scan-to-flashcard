@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -23,29 +23,15 @@ function CameraScreen() {
   const navigation = useNavigation<any>();
   const [isLoading, setIsLoading] = useState(false);
   const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
-  const [scannedImages, setScannedImages] = useState<string[] | null>(null);
+  const isMountedRef = useRef(true);
 
   // Request camera permission on mount
   useEffect(() => {
     requestCameraPermission();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
-
-  // Navigate when scannedImages is ready
-  useEffect(() => {
-    if (scannedImages && scannedImages.length > 0) {
-      const timer = setTimeout(() => {
-        try {
-          navigation.navigate('DocumentScanResult', {
-            scannedImages: scannedImages,
-          });
-        } catch (error) {
-          console.error('Navigation error:', error);
-        }
-        setScannedImages(null);
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [scannedImages, navigation]);
 
   // ── Camera permission ──────────────────────────────────────────────────────
 
@@ -95,11 +81,15 @@ function CameraScreen() {
 
   const handleTakePhoto = async () => {
     try {
+      const hasPermission =
+        cameraPermission === true || (await requestCameraPermission());
+      if (!hasPermission) {
+        return;
+      }
+
       setIsLoading(true);
 
       DocumentScanner.launchScanner({}, async (result: any) => {
-        setIsLoading(false);
-
         const scannedUris = result?.images || result;
 
         if (Array.isArray(scannedUris) && scannedUris.length > 0) {
@@ -108,25 +98,35 @@ function CameraScreen() {
             if (typeof img === 'string') return img;
             if (img?.uri) return img.uri;
             if (img?.path) return 'file://' + img.path;
-            return img;
+            return null;
           });
 
           try {
-            setIsLoading(true);
-            const savedUris = await saveImagesToDocuments(imageUris);
-            setScannedImages(savedUris);
+            const savedUris = await saveImagesToDocuments(
+              imageUris.filter((uri: any): uri is string => typeof uri === 'string' && uri.length > 0)
+            );
+            if (!isMountedRef.current || savedUris.length === 0) {
+              return;
+            }
+            navigation.replace('DocumentScanResult', {
+              scannedImages: savedUris,
+            });
           } catch (error) {
             console.error('Error processing images:', error);
             Alert.alert('Cảnh báo', 'Có lỗi khi xử lý ảnh. Vui lòng thử lại.');
           } finally {
-            setIsLoading(false);
+            if (isMountedRef.current) {
+              setIsLoading(false);
+            }
           }
-        } else {
-          Alert.alert('Thông báo', 'Không có tài liệu được quét hoặc đã cancel.');
+        } else if (isMountedRef.current) {
+          setIsLoading(false);
         }
       });
     } catch (error: any) {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
       console.error('Error scanning document:', error);
       Alert.alert('Lỗi', 'Không thể quét tài liệu: ' + error.message);
     }
@@ -178,7 +178,7 @@ function CameraScreen() {
           setIsLoading(false);
 
           // Navigate with cached file:// URI
-          navigation.navigate('DocumentScanResult', {
+          navigation.replace('DocumentScanResult', {
             pdfData: {
               uri: cachedUri,
               name: pdfName,
@@ -200,6 +200,67 @@ function CameraScreen() {
     }
   };
 
+  const handleUploadImages = async () => {
+    try {
+      setIsLoading(true);
+      const result = await DocumentPicker.pick({
+        type: ['image/*'],
+        allowMultiSelection: true,
+        presentationStyle: 'fullScreen',
+      });
+
+      const imageFiles = result.filter(file => {
+        return (
+          typeof file.uri === 'string' &&
+          file.uri.length > 0 &&
+          (!file.type || file.type.startsWith('image/'))
+        );
+      });
+
+      if (imageFiles.length === 0) {
+        Alert.alert('Error', 'Please choose at least one valid image file.');
+        return;
+      }
+
+      const localCopies = await DocumentPicker.keepLocalCopy({
+        destination: 'documentDirectory',
+        files: imageFiles.map((file, index) => ({
+          uri: file.uri,
+          fileName: file.name || `gallery_image_${Date.now()}_${index}.jpg`,
+        })) as [{ uri: string; fileName: string }, ...{ uri: string; fileName: string }[]],
+      });
+      const savedUris = localCopies
+        .filter(copy => copy.status === 'success')
+        .map(copy => copy.localUri);
+
+      if (savedUris.length === 0) {
+        const copyError = localCopies.find(copy => copy.status === 'error');
+        throw new Error(
+          copyError?.status === 'error'
+            ? copyError.copyError
+            : 'No image could be copied locally.'
+        );
+      }
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      navigation.replace('DocumentScanResult', {
+        scannedImages: savedUris,
+      });
+    } catch (error: any) {
+      console.error('Error picking images:', error);
+      if (error?.code !== 'DOCUMENT_PICKER_CANCELLED') {
+        Alert.alert('Error', 'Cannot choose images. Please try again.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  };
+
   // ── Save images to app's persistent Documents directory ───────────────────
   // No storage permission needed — DocumentDirectoryPath is app-private storage.
 
@@ -217,6 +278,9 @@ function CameraScreen() {
     for (const uri of imageUris) {
       // Clean up source path (strip file:// for RNFS)
       const sourcePath = uri.startsWith('file://') ? uri.slice(7) : uri;
+      if (!sourcePath) {
+        continue;
+      }
 
       // Generate unique destination filename
       const filename = `scan_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
@@ -235,7 +299,7 @@ function CameraScreen() {
 
 
 
-  if (cameraPermission === false) {
+  if (false && cameraPermission === false) {
     return (
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.errorContainer}>
@@ -292,9 +356,15 @@ function CameraScreen() {
         </View>
         <Text style={styles.guideTitleText}>Scan your Documents</Text>
         <Text style={styles.guideDescriptionText}>
-          Press the button below to start scanning your documents. The system will automatically detect
-          the edges of the document and crop it precisely.
+          Scan a new document, import photos from your gallery, or upload a PDF to continue.
         </Text>
+        {cameraPermission === false && (
+          <View style={styles.permissionNotice}>
+            <Text style={styles.permissionNoticeText}>
+              Camera permission is off. You can still upload images or PDF files.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.guideItemsContainer}>
           <View style={styles.guideItem}>
@@ -312,7 +382,7 @@ function CameraScreen() {
         </View>
       </View>
 
-      {/* Scan Button */}
+      {/* Import actions */}
       <View style={styles.captureButtonContainer}>
         <TouchableOpacity
           style={[styles.scanButton, isLoading && styles.scanButtonDisabled]}
@@ -324,15 +394,27 @@ function CameraScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.uploadPdfButton, isLoading && styles.scanButtonDisabled]}
+        <View style={styles.secondaryActionsRow}>
+          <TouchableOpacity
+            style={[styles.secondaryActionButton, isLoading && styles.scanButtonDisabled]}
+            onPress={handleUploadImages}
+            disabled={isLoading}
+          >
+            <Text style={styles.secondaryActionText} numberOfLines={1}>
+              Upload Images
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+          style={[styles.secondaryActionButton, isLoading && styles.scanButtonDisabled]}
           onPress={handleUploadPDF}
           disabled={isLoading}
         >
-          <Text style={styles.uploadPdfButtonText}>
+          <Text style={styles.secondaryActionText} numberOfLines={1}>
             {isLoading ? '⏳ Processing...' : 'Upload PDF'}
           </Text>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -437,6 +519,23 @@ const styles = StyleSheet.create({
     marginBottom: 25,
     lineHeight: 20,
   },
+  permissionNotice: {
+    width: '100%',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    borderRadius: 8,
+    backgroundColor: '#FFF7E1',
+    borderWidth: 1,
+    borderColor: '#D8B45D',
+  },
+  permissionNoticeText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#6B5420',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
   guideItemsContainer: {
     width: '100%',
     marginBottom: 15,
@@ -461,6 +560,7 @@ const styles = StyleSheet.create({
   captureButtonContainer: {
     alignItems: 'center',
     paddingVertical: 20,
+    paddingHorizontal: 20,
     backgroundColor: '#F6EFDD',
     gap: 12,
   },
@@ -476,12 +576,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    width: '80%',
+    width: '100%',
+    maxWidth: 420,
   },
-  uploadPdfButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 30,
-    borderRadius: 25,
+  secondaryActionsRow: {
+    width: '100%',
+    maxWidth: 420,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryActionButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 46,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 18,
     backgroundColor: '#4A7C59',
     justifyContent: 'center',
     alignItems: 'center',
@@ -490,7 +600,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    width: '80%',
   },
   scanButtonDisabled: {
     opacity: 0.6,
@@ -500,11 +609,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  uploadPdfButtonText: {
+  secondaryActionText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
 });
 
 export default CameraScreen;
+
