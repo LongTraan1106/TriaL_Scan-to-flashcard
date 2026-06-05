@@ -1,78 +1,78 @@
 # Study Helper - Scan to Flashcard
 
-Study Helper là ứng dụng mobile hỗ trợ học tập, cho phép người dùng scan hoặc upload tài liệu, trích xuất nội dung bằng OCR, tóm tắt nội dung và tạo flashcard tự động để ôn tập.
+Study Helper is a mobile learning application that allows users to scan or upload learning materials, extract text with OCR, summarize the content, and automatically generate flashcards for revision.
 
-Dự án được xây dựng theo mô hình full-stack:
+The project is built as a full-stack application:
 
 - **Frontend**: React Native + TypeScript
 - **Backend**: FastAPI + PostgreSQL
-- **AI modules**: OCR, summarization, flashcard generation, key takeaway extraction
+- **AI modules**: OCR, summarization, flashcard generation, and key takeaway extraction
 
 ---
 
-## Tính năng chính
+## Main Features
 
 ### 1. Authentication
 
-- Đăng ký tài khoản
-- Đăng nhập / đăng xuất
-- Refresh token
-- Quản lý phiên đăng nhập bằng JWT
-- Chỉnh sửa profile
-- Upload avatar
-- Phân quyền người dùng theo role: `student`, `teacher`
+- User registration
+- Login / logout
+- Refresh token support
+- JWT-based session management
+- Profile editing
+- Avatar upload
+- User roles: `student`, `teacher`
 
-### 2. Scan / Upload tài liệu
+### 2. Document Scan / Upload
 
-- Scan tài liệu bằng camera
-- Upload file ảnh hoặc PDF
-- Hỗ trợ các định dạng phổ biến như `.jpg`, `.jpeg`, `.png`, `.pdf`
-- Gửi file lên backend để xử lý OCR
+- Scan documents using the device camera
+- Upload image files or PDFs
+- Support common formats such as `.jpg`, `.jpeg`, `.png`, and `.pdf`
+- Send files to the backend for OCR processing
 
 ### 3. OCR
 
-- Trích xuất text từ ảnh hoặc PDF
-- Gom nhóm nội dung theo layout tài liệu
-- Trả về text đã nhận diện và kết quả OCR có cấu trúc
+- Extract text from images or PDF files
+- Group extracted content based on document layout
+- Return recognized text and structured OCR results
 
 ### 4. Summary
 
-- Tóm tắt nội dung đã OCR
-- Tạo summary theo từng phần / từng trang
-- Tạo bản tóm tắt tổng hợp của toàn bộ tài liệu
+- Summarize OCR-extracted content
+- Generate summaries by section or page
+- Generate an overall summary for the whole document
 
-### 5. Flashcard
+### 5. Flashcards
 
-- Tạo bộ flashcard tự động từ kết quả OCR
-- Mỗi flashcard gồm câu hỏi, câu trả lời và phần giải thích nếu có
-- Lưu flashcard theo từng tài liệu
-- Xem chi tiết bộ flashcard
-- Đánh dấu yêu thích
-- Xóa flashcard
+- Automatically generate flashcards from OCR results
+- Each flashcard contains a question, an answer, and an optional explanation
+- Store flashcards by document
+- View flashcard set details
+- Mark flashcards as favorite
+- Delete flashcards
 
 ### 6. Document Management
 
-- Lưu tài liệu đã xử lý
-- Xem danh sách tài liệu
-- Xem chi tiết summary của từng tài liệu
-- Đánh dấu tài liệu yêu thích
-- Xóa tài liệu
-- Tạo key takeaways cho tài liệu
+- Save processed documents
+- View the document list
+- View detailed summaries for each document
+- Mark documents as favorite
+- Delete documents
+- Generate key takeaways for documents
 
 ### 7. Group Study
 
-- Teacher có thể tạo group học tập
-- Người dùng có thể tham gia group public
-- Tìm kiếm group public
-- Thêm thành viên vào group
-- Đổi role thành viên: owner, admin, member
-- Chuyển quyền owner
-- Xóa thành viên hoặc rời group
-- Chia sẻ document / flashcard vào group
+- Teachers can create study groups
+- Users can join public groups
+- Search public groups
+- Add members to groups
+- Update member roles: owner, admin, member
+- Transfer group ownership
+- Remove members or leave groups
+- Share documents / flashcards to groups
 
 ---
 
-## Công nghệ sử dụng
+## Tech Stack
 
 ### Frontend
 
@@ -108,31 +108,31 @@ Dự án được xây dựng theo mô hình full-stack:
 
 ---
 
-## Cấu trúc thư mục
+## Project Structure
 
 ```bash
 TriaL_Scan-to-flashcard/
 ├── Backend/
-│   ├── main.py                 # FastAPI application và API routes
-│   ├── auth.py                 # Xử lý JWT, hash password, verify token
-│   ├── database.py             # Kết nối PostgreSQL
+│   ├── main.py                 # FastAPI application and API routes
+│   ├── auth.py                 # JWT, password hashing, and token verification
+│   ├── database.py             # PostgreSQL connection
 │   ├── models.py               # SQLAlchemy models
 │   ├── schemas.py              # Pydantic schemas
 │   ├── ocr_service.py          # OCR processing service
 │   ├── summary_service.py      # Summary generation service
 │   ├── flashcard_service.py    # Flashcard generation service
 │   ├── takeaway_service.py     # Key takeaway generation service
-│   ├── title_service.py        # Generate title cho document
-│   ├── group_routes.py         # API quản lý group học tập
-│   ├── reset_db.py             # Reset database
+│   ├── title_service.py        # Document title generation service
+│   ├── group_routes.py         # Group study APIs
+│   ├── reset_db.py             # Database reset script
 │   ├── requirements.txt        # Python dependencies
-│   └── README.md               # README riêng cho backend
+│   └── README.md               # Backend-specific README
 │
 ├── Frontend/
-│   ├── App.tsx                 # Entry point của app
-│   ├── screens/                # Các màn hình chính
-│   ├── components/             # Component tái sử dụng
-│   ├── navigation/             # Root navigator, tab navigator
+│   ├── App.tsx                 # Application entry point
+│   ├── screens/                # Main app screens
+│   ├── components/             # Reusable UI components
+│   ├── navigation/             # Root navigator and tab navigator
 │   ├── contexts/               # AuthContext, GroupContext
 │   ├── services/               # API services
 │   ├── types/                  # TypeScript types
@@ -146,61 +146,59 @@ TriaL_Scan-to-flashcard/
 
 ---
 
-## Luồng xử lý chính
+## Main Processing Flow
 
 ```text
-User scan/upload tài liệu
+User scans/uploads a document
         ↓
-Frontend gửi file lên Backend
+Frontend sends the file to the Backend
         ↓
-Backend xử lý OCR
+Backend processes the file with OCR
         ↓
-Trích xuất text và layout
+Text and layout are extracted
         ↓
-Gửi nội dung vào LLM để tóm tắt
+Extracted content is sent to an LLM for summarization
         ↓
-Tạo key takeaways
+Key takeaways are generated
         ↓
-Tạo flashcards từ nội dung OCR
+Flashcards are generated from the OCR content
         ↓
-Lưu document / flashcard vào database
+Documents and flashcards are saved to the database
         ↓
-User xem lại, học flashcard hoặc chia sẻ vào group
+User reviews summaries, studies flashcards, or shares them to a group
 ```
 
 ---
 
-## Database chính
+## Main Database Tables
 
-Các bảng chính trong hệ thống:
-
-| Bảng | Mô tả |
+| Table | Description |
 |---|---|
-| `users` | Lưu thông tin người dùng, role, avatar, thống kê học tập |
-| `refresh_tokens` | Lưu refresh token để quản lý đăng nhập |
-| `documents` | Lưu tài liệu đã OCR và summary |
-| `flashcards` | Lưu bộ flashcard được tạo từ tài liệu |
-| `groups` | Lưu thông tin group học tập |
-| `group_members` | Lưu thành viên trong group |
-| `group_shared_items` | Lưu document / flashcard được chia sẻ vào group |
+| `users` | Stores user information, roles, avatars, and learning statistics |
+| `refresh_tokens` | Stores refresh tokens for session management |
+| `documents` | Stores OCR-processed documents and summaries |
+| `flashcards` | Stores flashcard sets generated from documents |
+| `groups` | Stores study group information |
+| `group_members` | Stores members of each group |
+| `group_shared_items` | Stores documents / flashcards shared to groups |
 
 ---
 
-## Cài đặt Backend
+## Backend Setup
 
-### 1. Di chuyển vào thư mục backend
+### 1. Move into the backend folder
 
 ```bash
 cd Backend
 ```
 
-### 2. Tạo môi trường ảo
+### 2. Create a virtual environment
 
 ```bash
 python -m venv venv
 ```
 
-Kích hoạt môi trường:
+Activate the environment:
 
 ```bash
 # Windows
@@ -210,15 +208,15 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-### 3. Cài dependencies
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Cấu hình database
+### 4. Configure the database
 
-Tạo file `.env` hoặc chỉnh cấu hình database theo môi trường của bạn:
+Create a `.env` file or update the database configuration based on your local environment:
 
 ```env
 DATABASE_URL=postgresql://username:password@localhost:5432/study_helper_db
@@ -232,27 +230,27 @@ DEBUG=True
 CORS_ORIGINS=*
 ```
 
-> Không nên commit thông tin database thật hoặc secret key thật lên GitHub.
+> Do not commit real database credentials or secret keys to GitHub.
 
-### 5. Chạy backend
+### 5. Run the backend
 
 ```bash
 python main.py
 ```
 
-Hoặc chạy bằng uvicorn:
+Or run it with Uvicorn:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Backend mặc định chạy tại:
+The backend will run at:
 
 ```text
 http://localhost:8000
 ```
 
-API docs:
+API documentation:
 
 ```text
 http://localhost:8000/docs
@@ -260,47 +258,47 @@ http://localhost:8000/docs
 
 ---
 
-## Cài đặt Frontend
+## Frontend Setup
 
-### 1. Di chuyển vào thư mục frontend
+### 1. Move into the frontend folder
 
 ```bash
 cd Frontend
 ```
 
-### 2. Cài dependencies
+### 2. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Cấu hình API URL
+### 3. Configure the API URL
 
-Trong các file service của frontend, cập nhật `API_URL` về địa chỉ backend của bạn:
+In the frontend service files, update `API_URL` to point to your backend address:
 
 ```ts
 const API_URL = 'http://localhost:8000';
 ```
 
-Nếu chạy trên điện thoại thật hoặc Android emulator, cần đổi `localhost` thành IP máy đang chạy backend, ví dụ:
+When running on a real phone or Android emulator, replace `localhost` with the IP address of the machine running the backend, for example:
 
 ```ts
 const API_URL = 'http://192.168.1.10:8000';
 ```
 
-### 4. Chạy Metro
+### 4. Start Metro
 
 ```bash
 npm start
 ```
 
-### 5. Chạy Android
+### 5. Run on Android
 
 ```bash
 npm run android
 ```
 
-### 6. Chạy iOS
+### 6. Run on iOS
 
 ```bash
 npm run ios
@@ -308,7 +306,7 @@ npm run ios
 
 ---
 
-## Một số API chính
+## Main API Endpoints
 
 ### Auth
 
@@ -360,29 +358,29 @@ DELETE /api/groups/{group_id}/shared-items/{shared_item_id}
 
 ---
 
-## Ghi chú khi chạy project
+## Notes
 
-- Backend cần kết nối được PostgreSQL trước khi chạy app.
-- Một số API xử lý AI cần endpoint LLM/OCR hoạt động ổn định.
-- Frontend hiện dùng API URL cố định trong các service, nên cần chỉnh lại khi deploy hoặc chạy local.
-- Khi test trên Android emulator, `localhost` của app không trỏ về máy tính host. Hãy dùng IP LAN hoặc cấu hình reverse port bằng ADB.
-- Nếu dùng camera hoặc document scanner, cần cấp quyền camera/storage cho app.
-
----
-
-## Hướng phát triển tiếp theo
-
-- Thêm file `.env` riêng cho frontend để quản lý API URL dễ hơn
-- Thêm Docker Compose cho backend + PostgreSQL
-- Thêm migration tool như Alembic
-- Thêm test cho OCR, summary và flashcard pipeline
-- Cải thiện UI học flashcard: progress, spaced repetition, quiz mode
-- Thêm chức năng export summary / flashcard ra PDF
-- Thêm dashboard thống kê học tập theo ngày
+- The backend must be connected to PostgreSQL before running the app.
+- Some AI-related APIs require a stable OCR/LLM service.
+- The frontend currently uses a fixed API URL inside service files, so it should be updated when running locally or deploying.
+- On Android emulator, `localhost` inside the app does not point to the host machine. Use the host LAN IP address or configure ADB reverse port forwarding.
+- Camera and file permissions are required when using camera scanning or document upload features.
 
 ---
 
-## Tác giả
+## Future Improvements
+
+- Add a frontend `.env` file for easier API URL configuration
+- Add Docker Compose for the backend and PostgreSQL
+- Add a migration tool such as Alembic
+- Add tests for the OCR, summary, and flashcard pipeline
+- Improve the flashcard learning UI with progress tracking, spaced repetition, and quiz mode
+- Add export support for summaries / flashcards as PDF
+- Add a learning statistics dashboard
+
+---
+
+## Author
 
 **LongTraan1106**
 
