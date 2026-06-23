@@ -9,6 +9,8 @@ import numpy as np
 import requests
 from paddleocr import LayoutDetection
 
+import base64
+
 from config import (
     LAYOUT_MODEL_NAME,
     LAYOUT_VISUALIZATION_DIR,
@@ -71,23 +73,84 @@ def get_layout_model():
     return layout_model
 
 
-def call_mistral_ocr(file_bytes: bytes, filename: str, ocr_url: str = OCR_API_URL) -> str:
-    data = {
+# def call_mistral_ocr(file_bytes: bytes, filename: str, ocr_url: str = OCR_API_URL) -> str:
+#     data = {
+#         "model": OCR_MODEL_NAME,
+#         "include_image_base64": OCR_INCLUDE_IMAGE_BASE64,
+#     }
+#     mime_type = "application/pdf" if filename.lower().endswith(".pdf") else "image/png"
+#     files = {"file": (filename, file_bytes, mime_type)}
+
+#     try:
+#         response = requests.post(ocr_url, files=files, data=data, timeout=OCR_TIMEOUT_SECONDS)
+#         if response.status_code == 200:
+#             result_json = response.json()
+#             extracted_page = result_json.get("pages", [{}])[0]
+#             return extracted_page.get("markdown", "")
+
+#         print(f"[OCR API error] {filename}: {response.status_code} - {response.text}")
+#         return ""
+#     except Exception as exc:
+#         print(f"[OCR connection error] {filename}: {exc}")
+#         return ""
+
+def call_qwen_ocr(file_bytes: bytes, filename: str, ocr_url: str = OCR_API_URL) -> str:
+    image_base64 = base64.b64encode(file_bytes).decode("utf-8")
+
+    payload = {
         "model": OCR_MODEL_NAME,
-        "include_image_base64": OCR_INCLUDE_IMAGE_BASE64,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an OCR engine. Extract all readable text from the image. "
+                    "Return only the extracted text in Markdown format. Do not explain."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Extract all readable text from this image. "
+                            "Preserve tables, formulas, headings, and line breaks when possible."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_base64}"
+                        },
+                    },
+                ],
+            },
+        ],
+        "temperature": 0,
+        "max_tokens": 2048,
+        "stream": False,
     }
-    mime_type = "application/pdf" if filename.lower().endswith(".pdf") else "image/png"
-    files = {"file": (filename, file_bytes, mime_type)}
 
     try:
-        response = requests.post(ocr_url, files=files, data=data, timeout=OCR_TIMEOUT_SECONDS)
+        response = requests.post(
+            ocr_url,
+            json=payload,
+            timeout=OCR_TIMEOUT_SECONDS,
+        )
+
         if response.status_code == 200:
             result_json = response.json()
-            extracted_page = result_json.get("pages", [{}])[0]
-            return extracted_page.get("markdown", "")
+            return (
+                result_json
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
 
         print(f"[OCR API error] {filename}: {response.status_code} - {response.text}")
         return ""
+
     except Exception as exc:
         print(f"[OCR connection error] {filename}: {exc}")
         return ""
@@ -316,7 +379,7 @@ def crop_and_ocr_box(
         return ""
 
     print(f"    -> OCR {filename} ({box['label']})...")
-    return call_mistral_ocr(file_bytes, filename, ocr_url)
+    return call_qwen_ocr(file_bytes, filename, ocr_url)
 
 
 def process_and_ocr_document(
@@ -428,7 +491,7 @@ def process_and_ocr_document(
                     ocr_text = ""
                 else:
                     print(f"    -> OCR {filename} ({box['label']})...")
-                    ocr_text = call_mistral_ocr(file_bytes, filename, ocr_url)
+                    ocr_text = call_qwen_ocr(file_bytes, filename, ocr_url)
 
                 return {
                     "page": page_idx + 1,
