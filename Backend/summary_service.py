@@ -6,8 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-LLM_API_URL = "http://192.168.20.150:8000/v1/chat/completions"
-MODEL_NAME = "Qwen/Qwen3.6-27B/"
+from config import (
+    LLM_API_URL,
+    SUMMARY_LLM_TIMEOUT_SECONDS,
+    SUMMARY_MODEL_NAME as MODEL_NAME,
+)
 
 logger = logging.getLogger("study_helper.llm")
 if not logger.handlers:
@@ -110,7 +113,7 @@ Plain-text summary:"""
             llm_endpoint,
             json=payload,
             headers=headers,
-            timeout=120.0,
+            timeout=SUMMARY_LLM_TIMEOUT_SECONDS,
         )
         elapsed_ms = (time.perf_counter() - request_started) * 1000
         logger.info(

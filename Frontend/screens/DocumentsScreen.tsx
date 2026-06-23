@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
     height: HEADER_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: IS_COMPACT_HEIGHT ? 22 : 34,
+    marginTop: IS_COMPACT_HEIGHT ? 30 : 55,
     marginHorizontal: PAGE_PADDING,
     borderRadius: 15,
     backgroundColor: '#88A88A',

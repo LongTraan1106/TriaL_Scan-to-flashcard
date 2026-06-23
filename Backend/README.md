@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 ### 2. Cấu hình database
 
-Sửa `database.py` - dòng DATABASE_URL:
+Sửa `config.py` - dòng `DATABASE_URL`, hoặc set biến môi trường `DATABASE_URL`:
 
 ```python
 DATABASE_URL = "postgresql://username:password@localhost:5432/study_helper_db"
@@ -44,7 +44,7 @@ CREATE DATABASE study_helper_db;
 
 ### 3. Cấu hình JWT Secret
 
-Sửa `auth.py` - dòng SECRET_KEY (QUAN TRỌNG cho production):
+Sửa `config.py` - dòng `SECRET_KEY`, hoặc set biến môi trường `SECRET_KEY` (QUAN TRỌNG cho production):
 
 ```python
 SECRET_KEY = "your-secret-key-change-this-in-production"
@@ -58,9 +58,9 @@ SECRET_KEY = "your-secret-key-change-this-in-production"
 python main.py
 ```
 
-API sẽ chạy tại: `http://localhost:8000`
+API sẽ chạy theo `SERVER_HOST`/`SERVER_PORT` trong `config.py`.
 
-Docs API: `http://localhost:8000/docs`
+Docs API: `http://<host>:<port>/docs`
 
 ## 📡 API Endpoints
 
@@ -277,7 +277,7 @@ Khi sẽ deploy lên server remote:
 
 1. **Cấu hình database**: Thay đổi DATABASE_URL
 2. **Cấu hình JWT**: Thay đổi SECRET_KEY (dùng environment variable)
-3. **Cấu hình CORS**: Thay đổi allow_origins tại main.py
+3. **Cấu hình CORS**: Thay đổi `CORS_ALLOW_ORIGINS` trong `config.py` hoặc qua biến môi trường
 4. **Chạy server**: Dùng Gunicorn hoặc tương đương
 
 ```bash

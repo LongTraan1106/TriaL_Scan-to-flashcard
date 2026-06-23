@@ -3,10 +3,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from config import DATABASE_URL, DEFAULT_GROUP_AVATAR_KEY, DEFAULT_GROUP_MAX_MEMBERS
+
 # Cấu hình PostgreSQL
 # Đối với development, bạn có thể thay đổi thông tin kết nối tại đây
-DATABASE_URL=DATABASE_URL = "postgresql://postgres:longtran123@192.168.20.156:6020/SE_Auth"
-
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -31,9 +31,16 @@ def ensure_document_ocr_columns():
 
 def ensure_group_ui_columns():
     """Add group UI columns for existing databases."""
+    avatar_key = DEFAULT_GROUP_AVATAR_KEY.replace("'", "''")
     statements = [
-        "ALTER TABLE groups ADD COLUMN IF NOT EXISTS max_members INTEGER NOT NULL DEFAULT 25",
-        "ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(50) NOT NULL DEFAULT 'avatar_1'",
+        (
+            "ALTER TABLE groups ADD COLUMN IF NOT EXISTS max_members "
+            f"INTEGER NOT NULL DEFAULT {DEFAULT_GROUP_MAX_MEMBERS}"
+        ),
+        (
+            "ALTER TABLE groups ADD COLUMN IF NOT EXISTS avatar_key "
+            f"VARCHAR(50) NOT NULL DEFAULT '{avatar_key}'"
+        ),
     ]
     with engine.begin() as connection:
         for statement in statements:

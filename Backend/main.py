@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, R
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, and_
 from datetime import datetime, timezone
 from database import (
     get_db,
@@ -48,6 +48,30 @@ from pathlib import Path
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
+from config import (
+    ALLOWED_AVATAR_TYPES,
+    API_DEFAULT_LLM_API_URL,
+    API_DEFAULT_MODEL_NAME,
+    APP_DESCRIPTION,
+    APP_TITLE,
+    APP_VERSION,
+    AVATAR_UPLOAD_DIR_NAME,
+    CORS_ALLOW_CREDENTIALS,
+    CORS_ALLOW_HEADERS,
+    CORS_ALLOW_METHODS,
+    CORS_ALLOW_ORIGINS,
+    EMAIL_REGEX,
+    MAX_AVATAR_BYTES,
+    OCR_API_URL,
+    OCR_CENTER_TOLERANCE,
+    OCR_MAX_WORKERS,
+    PASSWORD_REGEX,
+    SERVER_HOST,
+    SERVER_PORT,
+    UPLOAD_PUBLIC_PATH,
+    UPLOAD_ROOT_DIR,
+)
+
 logger = logging.getLogger("study_helper.api")
 if not logger.handlers:
     logging.basicConfig(
@@ -63,29 +87,27 @@ ensure_user_profile_columns()
 ensure_group_shared_items_table()
 
 app = FastAPI(
-    title="Study Helper Auth API",
-    description="API xác thực cho Study Helper App",
-    version="1.0.0"
+    title=APP_TITLE,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
 )
 
 # Cấu hình CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Trong production, thay đổi thành domain cụ thể
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_methods=CORS_ALLOW_METHODS,
+    allow_headers=CORS_ALLOW_HEADERS,
 )
 
-UPLOAD_ROOT = Path("uploads")
-AVATAR_DIR = UPLOAD_ROOT / "avatars"
+UPLOAD_ROOT = Path(UPLOAD_ROOT_DIR)
+AVATAR_DIR = UPLOAD_ROOT / AVATAR_UPLOAD_DIR_NAME
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
+app.mount(UPLOAD_PUBLIC_PATH, StaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
 
-EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-PASSWORD_PATTERN = re.compile(r"^(?=.*[A-Z])(?=.*\d).{6,}$")
-ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_AVATAR_BYTES = 5 * 1024 * 1024
+EMAIL_PATTERN = re.compile(EMAIL_REGEX)
+PASSWORD_PATTERN = re.compile(PASSWORD_REGEX)
 
 
 # ==========================================
@@ -577,7 +599,9 @@ async def upload_current_user_avatar(
         file_path = AVATAR_DIR / filename
         file_path.write_bytes(content)
 
-        avatar_path = f"/uploads/avatars/{filename}"
+        avatar_path = (
+            f"{UPLOAD_PUBLIC_PATH.rstrip('/')}/{AVATAR_UPLOAD_DIR_NAME}/{filename}"
+        )
         user.avatar_url = str(request.base_url).rstrip("/") + avatar_path
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -605,8 +629,8 @@ class SummaryRequest(BaseModel):
     """Request schema for summary API"""
     text_content: Optional[str] = None
     ocr_results: Optional[List[Dict[str, Any]]] = None
-    llm_endpoint: str = "http://192.168.20.150:8000/v1/chat/completions"
-    model_name: str = "Qwen2.5/Qwen2.5-7B-Instruct/"
+    llm_endpoint: str = API_DEFAULT_LLM_API_URL
+    model_name: str = API_DEFAULT_MODEL_NAME
 
 
 class SummaryResponse(BaseModel):
@@ -626,8 +650,8 @@ class OCRResponse(BaseModel):
 class FlashcardProcessRequest(BaseModel):
     """Request schema for flashcard generation API"""
     ocr_results: List[Dict[str, Any]]
-    llm_endpoint: str = "http://192.168.20.150:8000/v1/chat/completions"
-    model_name: str = "Qwen2.5/Qwen2.5-7B-Instruct/"
+    llm_endpoint: str = API_DEFAULT_LLM_API_URL
+    model_name: str = API_DEFAULT_MODEL_NAME
 
 
 class FlashcardProcessResponse(BaseModel):
@@ -642,8 +666,8 @@ class TakeawayProcessRequest(BaseModel):
     summary_data: Optional[Dict[str, Any]] = None
     text_content: Optional[str] = None
     ocr_results: Optional[List[Dict[str, Any]]] = None
-    llm_endpoint: str = "http://192.168.20.150:8000/v1/chat/completions"
-    model_name: str = "Qwen2.5/Qwen2.5-7B-Instruct/"
+    llm_endpoint: str = API_DEFAULT_LLM_API_URL
+    model_name: str = API_DEFAULT_MODEL_NAME
 
 
 class TakeawayProcessResponse(BaseModel):
@@ -656,8 +680,8 @@ class TakeawayProcessResponse(BaseModel):
 class DocumentTitleRequest(BaseModel):
     """Request schema for document title generation."""
     summary_data: Dict[str, Any]
-    llm_endpoint: str = "http://192.168.20.150:8000/v1/chat/completions"
-    model_name: str = "Qwen2.5/Qwen2.5-7B-Instruct/"
+    llm_endpoint: str = API_DEFAULT_LLM_API_URL
+    model_name: str = API_DEFAULT_MODEL_NAME
 
 
 class DocumentTitleResponse(BaseModel):
@@ -673,9 +697,9 @@ class DocumentTitleResponse(BaseModel):
 @app.post("/api/ocr/process", response_model=OCRResponse)
 async def process_ocr(
     file: UploadFile = File(...),
-    center_tolerance: int = 50,
-    ocr_url: str = "http://192.168.20.156:8088/v1/ocr",
-    ocr_max_workers: int = 4,
+    center_tolerance: int = OCR_CENTER_TOLERANCE,
+    ocr_url: str = OCR_API_URL,
+    ocr_max_workers: int = OCR_MAX_WORKERS,
     visualize: bool = False
 ):
     """
@@ -767,8 +791,8 @@ async def process_summary(request: SummaryRequest):
     Request body:
     {
         "text_content": "Nội dung text cần tóm tắt",
-        "llm_endpoint": "http://192.168.20.150:8000/v1/chat/completions" (optional),
-        "model_name": "Qwen2.5/Qwen2.5-7B-Instruct/" (optional)
+        "llm_endpoint": API_DEFAULT_LLM_API_URL (optional),
+        "model_name": API_DEFAULT_MODEL_NAME (optional)
     }
     
     Returns:
@@ -1130,12 +1154,27 @@ def get_flashcard(
     """Lay chi tiet mot bo flashcard va kiem tra ownership."""
     try:
         user = get_user_from_token(access_token, db)
-        flashcard = db.query(Flashcard).filter(
-            Flashcard.id == flashcard_id,
-            Flashcard.user_id == user.id
-        ).first()
+        flashcard = db.query(Flashcard).filter(Flashcard.id == flashcard_id).first()
 
         if not flashcard:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Flashcard khong ton tai"
+            )
+
+        has_shared_access = db.query(GroupSharedItem.id).join(
+            GroupMember,
+            and_(
+                GroupMember.group_id == GroupSharedItem.group_id,
+                GroupMember.user_id == user.id,
+                GroupMember.is_active == True,
+            )
+        ).filter(
+            GroupSharedItem.item_type == "flashcard",
+            GroupSharedItem.item_id == flashcard_id,
+        ).first() is not None
+
+        if flashcard.user_id != user.id and not has_shared_access:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Flashcard khong ton tai"
@@ -1370,14 +1409,27 @@ def get_document(
     """
     try:
         user = get_user_from_token(access_token, db)
-        
-        # Lấy document và kiểm tra ownership
-        document = db.query(Document).filter(
-            Document.id == document_id,
-            Document.user_id == user.id
-        ).first()
-        
+        document = db.query(Document).filter(Document.id == document_id).first()
+
         if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tài liệu không tồn tại"
+            )
+
+        has_shared_access = db.query(GroupSharedItem.id).join(
+            GroupMember,
+            and_(
+                GroupMember.group_id == GroupSharedItem.group_id,
+                GroupMember.user_id == user.id,
+                GroupMember.is_active == True,
+            )
+        ).filter(
+            GroupSharedItem.item_type == "document",
+            GroupSharedItem.item_id == document_id,
+        ).first() is not None
+
+        if document.user_id != user.id and not has_shared_access:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Tài liệu không tồn tại"
@@ -1515,4 +1567,4 @@ def toggle_favorite(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=6010)
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)

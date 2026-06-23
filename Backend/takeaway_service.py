@@ -5,8 +5,11 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-LLM_API_URL = "http://192.168.20.150:8000/v1/chat/completions"
-MODEL_NAME = "Qwen2.5/Qwen2.5-7B-Instruct"
+from config import (
+    LLM_API_URL,
+    TAKEAWAY_LLM_TIMEOUT_SECONDS,
+    TAKEAWAY_MODEL_NAME as MODEL_NAME,
+)
 
 logger = logging.getLogger("study_helper.takeaways")
 
@@ -106,7 +109,7 @@ Key takeaways:"""
                 llm_endpoint,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=90.0,
+                timeout=TAKEAWAY_LLM_TIMEOUT_SECONDS,
             )
 
         elapsed_ms = (time.perf_counter() - started) * 1000

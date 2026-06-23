@@ -9,6 +9,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   Modal,
   StyleSheet,
   Text,
@@ -21,7 +22,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Svg, { Circle, Line } from 'react-native-svg';
 import { useAuth } from '../contexts/AuthContext';
 import { useGroup } from '../contexts/GroupContext';
-import { Group } from '../types/group';
+import { Group, GroupMember } from '../types/group';
+import { groupService } from '../services/groupService';
 import BackIcon from '../assets/icons/group_screen/back_icon.svg';
 import AddIcon from '../assets/icons/group_screen/add_icon.svg';
 import AvatarOneIcon from '../assets/icons/group_screen/avatar_1.svg';
@@ -114,6 +116,8 @@ function GroupScreen() {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchFilter, setSearchFilter] = useState<SearchFilter>('joined');
   const [previewGroup, setPreviewGroup] = useState<SearchGroup | null>(null);
+  const [previewGroupMembers, setPreviewGroupMembers] = useState<GroupMember[]>([]);
+  const [isLoadingPreviewMembers, setIsLoadingPreviewMembers] = useState(false);
 
   const isTeacher = user?.role === 'teacher';
 
@@ -153,6 +157,29 @@ function GroupScreen() {
     searchPublicGroups,
     searchText,
   ]);
+
+  // Fetch preview group members when previewGroup changes
+  useEffect(() => {
+    if (!previewGroup) {
+      setPreviewGroupMembers([]);
+      return;
+    }
+
+    const fetchMembers = async () => {
+      try {
+        setIsLoadingPreviewMembers(true);
+        const groupDetail = await groupService.getGroupDetails(previewGroup.id);
+        setPreviewGroupMembers(groupDetail.members || []);
+      } catch (err) {
+        console.error('Failed to fetch preview group members:', err);
+        setPreviewGroupMembers([]);
+      } finally {
+        setIsLoadingPreviewMembers(false);
+      }
+    };
+
+    fetchMembers();
+  }, [previewGroup]);
 
   const filteredGroups = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -312,23 +339,36 @@ function GroupScreen() {
             {previewGroup?.member_count}/{previewGroup?.capacity || 25}
           </Text>
 
-          <View style={styles.memberPreviewGrid}>
-            {MEMBER_COLORS.map((color) => (
-              <View
-                key={color}
-                style={[
-                  styles.memberCircle,
-                  { backgroundColor: color },
-                ]}
-              >
-                <AvatarTwoIcon
-                  width={MEMBER_AVATAR_SIZE * 0.56}
-                  height={MEMBER_AVATAR_SIZE * 0.66}
-                />
-              </View>
-            ))}
-            <MoreMemberIcon />
-          </View>
+          {isLoadingPreviewMembers ? (
+            <View style={styles.memberPreviewLoading}>
+              <ActivityIndicator color="#6F9A78" size="small" />
+            </View>
+          ) : (
+            <View style={styles.memberPreviewGrid}>
+              {previewGroupMembers.slice(0, 5).map((member) => (
+                <View
+                  key={member.id}
+                  style={[styles.memberCircle, styles.memberAvatarCircle]}
+                >
+                  {member.avatar_url ? (
+                    <Image
+                      source={{ uri: member.avatar_url }}
+                      style={styles.memberAvatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.memberAvatarText}>
+                      {member.username.charAt(0).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+              ))}
+              {previewGroupMembers.length > 5 && (
+                <View style={styles.memberMoreCircle}>
+                  <Text style={styles.memberMoreText}>+{previewGroupMembers.length - 5}</Text>
+                </View>
+              )}
+            </View>
+          )}
 
           <TouchableOpacity
             style={[styles.joinButton, isJoiningGroup && styles.buttonDisabled]}
@@ -913,6 +953,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  memberAvatarCircle: {
+    backgroundColor: '#D4E4D1',
+    overflow: 'hidden',
+  },
+  memberAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: MEMBER_AVATAR_SIZE / 2,
+  },
+  memberAvatarText: {
+    fontSize: Math.max(12, Math.min(16, MEMBER_AVATAR_SIZE * 0.5)),
+    fontWeight: '800',
+    color: '#2C4936',
+  },
   memberMoreCircle: {
     width: MEMBER_AVATAR_SIZE,
     height: MEMBER_AVATAR_SIZE,
@@ -921,6 +975,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2.5,
     borderColor: '#A9BEAC',
+  },
+  memberMoreText: {
+    fontSize: Math.max(11, Math.min(14, MEMBER_AVATAR_SIZE * 0.45)),
+    fontWeight: '700',
+    color: '#2C4936',
+  },
+  memberPreviewLoading: {
+    height: MEMBER_AVATAR_SIZE * 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   joinButton: {
     width: Math.max(138, Math.min(190, MODAL_WIDTH * 0.38)),

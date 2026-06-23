@@ -440,6 +440,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: 'bold',
     color: '#fff',
+    textAlign: 'center',
   },
   backButton: {
     fontSize: 14,
@@ -510,7 +511,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#323C1A',
     marginBottom: 15,
-    textAlign: 'center',
+    // textAlign: 'center',
   },
   guideDescriptionText: {
     fontSize: 14,
@@ -608,11 +609,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+    textAlign: 'center',
   },
   secondaryActionText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });
 

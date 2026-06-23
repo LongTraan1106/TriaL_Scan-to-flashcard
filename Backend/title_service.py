@@ -5,8 +5,11 @@ from typing import Any, Dict
 
 import httpx
 
-LLM_API_URL = "http://localhost:5001/v1/chat/completions"
-MODEL_NAME = "Qwen/Qwen3.6-27B/"
+from config import (
+    TITLE_LLM_API_URL as LLM_API_URL,
+    TITLE_LLM_TIMEOUT_SECONDS,
+    TITLE_MODEL_NAME as MODEL_NAME,
+)
 
 logger = logging.getLogger("study_helper.title")
 
@@ -69,7 +72,7 @@ Title:"""
                 llm_endpoint,
                 json=payload,
                 headers={"Content-Type": "application/json"},
-                timeout=60.0,
+                timeout=TITLE_LLM_TIMEOUT_SECONDS,
             )
 
         elapsed_ms = (time.perf_counter() - started) * 1000

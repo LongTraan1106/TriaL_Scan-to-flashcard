@@ -1,5 +1,6 @@
 import React, { createContext, useState, useCallback, useEffect } from 'react';
 import { authService, SignUpRequest, SignInRequest, UserResponse } from '../services/authService';
+import { documentService } from '../services/documentService';
 import { storageService } from '../utils/storageService';
 
 export interface AuthContextType {
@@ -135,6 +136,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await storageService.saveAccessToken(tokens.access_token);
       await storageService.saveRefreshToken(tokens.refresh_token);
       await storageService.saveUserData(userData);
+      documentService.clearAllCache();
 
       // Update state
       setAccessToken(tokens.access_token);
@@ -166,6 +168,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Clear all auth data from storage
       await storageService.clearAuthData();
+      documentService.clearAllCache();
 
       // Clear state
       setAccessToken(null);

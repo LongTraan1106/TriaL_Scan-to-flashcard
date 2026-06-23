@@ -3,6 +3,23 @@ from typing import Optional
 from datetime import datetime
 import re
 
+from config import (
+    DEFAULT_GROUP_AVATAR_KEY,
+    DEFAULT_GROUP_MAX_MEMBERS,
+    GROUP_DESCRIPTION_MAX_LENGTH,
+    GROUP_MEMBER_ROLES,
+    GROUP_NAME_MAX_LENGTH,
+    GROUP_SHARED_ITEM_TYPES,
+    PASSWORD_MIN_LENGTH,
+    PASSWORD_NUMBER_REGEX,
+    PASSWORD_UPPERCASE_REGEX,
+    SIGNUP_EMAIL_REGEX,
+    USER_ROLES,
+    USERNAME_MAX_LENGTH,
+    USERNAME_MIN_LENGTH,
+    USERNAME_REGEX,
+)
+
 
 class UserCreate(BaseModel):
     """Schema cho sign up request"""
@@ -13,34 +30,34 @@ class UserCreate(BaseModel):
 
     @field_validator('username')
     def validate_username(cls, v):
-        if len(v) > 20:
-            raise ValueError('Username không được vượt quá 20 ký tự')
-        if len(v) < 3:
-            raise ValueError('Username phải có ít nhất 3 ký tự')
-        if not re.match(r'^[a-zA-Z0-9_]+$', v):
+        if len(v) > USERNAME_MAX_LENGTH:
+            raise ValueError(f'Username không được vượt quá {USERNAME_MAX_LENGTH} ký tự')
+        if len(v) < USERNAME_MIN_LENGTH:
+            raise ValueError(f'Username phải có ít nhất {USERNAME_MIN_LENGTH} ký tự')
+        if not re.match(USERNAME_REGEX, v):
             raise ValueError('Username chỉ được chứa chữ cái, số và dấu gạch dưới')
         return v
 
     @field_validator('email')
     def validate_email(cls, v):
-        if not re.match(r'^[a-zA-Z0-9._%+-]+@gmail\.com$', v):
+        if not re.match(SIGNUP_EMAIL_REGEX, v):
             raise ValueError('Email phải có định dạng @gmail.com')
         return v
 
     @field_validator('password')
     def validate_password(cls, v):
-        if len(v) < 6:
-            raise ValueError('Password phải có ít nhất 6 ký tự')
-        if not re.search(r'[A-Z]', v):
+        if len(v) < PASSWORD_MIN_LENGTH:
+            raise ValueError(f'Password phải có ít nhất {PASSWORD_MIN_LENGTH} ký tự')
+        if not re.search(PASSWORD_UPPERCASE_REGEX, v):
             raise ValueError('Password phải chứa ít nhất 1 ký tự viết hoa')
-        if not re.search(r'[0-9]', v):
+        if not re.search(PASSWORD_NUMBER_REGEX, v):
             raise ValueError('Password phải chứa ít nhất 1 chữ số')
         return v
 
     @field_validator('role')
     def validate_role(cls, v):
-        if v not in ['teacher', 'student']:
-            raise ValueError('Role phải là teacher hoặc student')
+        if v not in USER_ROLES:
+            raise ValueError(f"Role phải là {' hoặc '.join(USER_ROLES)}")
         return v
 
 
@@ -146,21 +163,23 @@ class GroupCreate(BaseModel):
     name: str
     description: Optional[str] = None
     is_public: bool = False
-    avatar_key: str = "avatar_1"
-    max_members: int = 25
+    avatar_key: str = DEFAULT_GROUP_AVATAR_KEY
+    max_members: int = DEFAULT_GROUP_MAX_MEMBERS
 
     @field_validator('name')
     def validate_name(cls, v):
         if len(v) < 1:
             raise ValueError('Tên group không được để trống')
-        if len(v) > 100:
-            raise ValueError('Tên group không được vượt quá 100 ký tự')
+        if len(v) > GROUP_NAME_MAX_LENGTH:
+            raise ValueError(f'Tên group không được vượt quá {GROUP_NAME_MAX_LENGTH} ký tự')
         return v
 
     @field_validator('description')
     def validate_description(cls, v):
-        if v and len(v) > 500:
-            raise ValueError('Mô tả không được vượt quá 500 ký tự')
+        if v and len(v) > GROUP_DESCRIPTION_MAX_LENGTH:
+            raise ValueError(
+                f'Mô tả không được vượt quá {GROUP_DESCRIPTION_MAX_LENGTH} ký tự'
+            )
         return v
 
 
@@ -174,14 +193,16 @@ class GroupUpdate(BaseModel):
 
     @field_validator('name')
     def validate_name(cls, v):
-        if v and len(v) > 100:
-            raise ValueError('Tên group không được vượt quá 100 ký tự')
+        if v and len(v) > GROUP_NAME_MAX_LENGTH:
+            raise ValueError(f'Tên group không được vượt quá {GROUP_NAME_MAX_LENGTH} ký tự')
         return v
 
     @field_validator('description')
     def validate_description(cls, v):
-        if v and len(v) > 500:
-            raise ValueError('Mô tả không được vượt quá 500 ký tự')
+        if v and len(v) > GROUP_DESCRIPTION_MAX_LENGTH:
+            raise ValueError(
+                f'Mô tả không được vượt quá {GROUP_DESCRIPTION_MAX_LENGTH} ký tự'
+            )
         return v
 
 
@@ -194,8 +215,8 @@ class GroupResponse(BaseModel):
     owner_name: Optional[str] = None
     is_public: bool
     member_count: int
-    max_members: int = 25
-    avatar_key: str = "avatar_1"
+    max_members: int = DEFAULT_GROUP_MAX_MEMBERS
+    avatar_key: str = DEFAULT_GROUP_AVATAR_KEY
     created_at: datetime
     updated_at: datetime
 
@@ -212,8 +233,8 @@ class GroupDetailResponse(BaseModel):
     owner_name: str
     is_public: bool
     member_count: int
-    max_members: int = 25
-    avatar_key: str = "avatar_1"
+    max_members: int = DEFAULT_GROUP_MAX_MEMBERS
+    avatar_key: str = DEFAULT_GROUP_AVATAR_KEY
     created_at: datetime
     updated_at: datetime
     members: list[GroupMemberResponse] = []
@@ -239,8 +260,8 @@ class ChangeMemberRoleRequest(BaseModel):
 
     @field_validator('member_role')
     def validate_role(cls, v):
-        if v not in ['admin', 'member']:
-            raise ValueError('Role phải là admin hoặc member')
+        if v not in GROUP_MEMBER_ROLES:
+            raise ValueError(f"Role phải là {' hoặc '.join(GROUP_MEMBER_ROLES)}")
         return v
 
 
@@ -263,8 +284,8 @@ class SearchUsersRequest(BaseModel):
     def validate_username(cls, v):
         if len(v) < 1:
             raise ValueError('Username không được để trống')
-        if len(v) > 20:
-            raise ValueError('Username không được vượt quá 20 ký tự')
+        if len(v) > USERNAME_MAX_LENGTH:
+            raise ValueError(f'Username không được vượt quá {USERNAME_MAX_LENGTH} ký tự')
         return v
 
 
@@ -296,8 +317,10 @@ class GroupSharedItemCreate(BaseModel):
 
     @field_validator('item_type')
     def validate_item_type(cls, v):
-        if v not in ['document', 'flashcard']:
-            raise ValueError('item_type phai la document hoac flashcard')
+        if v not in GROUP_SHARED_ITEM_TYPES:
+            raise ValueError(
+                f"item_type phải là {' hoặc '.join(GROUP_SHARED_ITEM_TYPES)}"
+            )
         return v
 
     @field_validator('item_id')

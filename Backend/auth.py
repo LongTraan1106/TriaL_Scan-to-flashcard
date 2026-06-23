@@ -3,14 +3,17 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from config import (
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    JWT_ALGORITHM as ALGORITHM,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+    SECRET_KEY,
+)
+
 # Cấu hình password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Cấu hình JWT
-SECRET_KEY = "your-secret-key-change-this-in-production"  # ⚠️ Thay đổi trong production
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 
 def hash_password(password: str) -> str:

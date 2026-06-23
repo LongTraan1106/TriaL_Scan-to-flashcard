@@ -211,6 +211,11 @@ class DocumentService {
     this.notifyDataChanged('flashcards');
   }
 
+  clearAllCache() {
+    this.invalidateDocumentsCache();
+    this.invalidateFlashcardsCache();
+  }
+
   private flashcardCacheKey(documentId?: number): string {
     return typeof documentId === 'number' ? `document:${documentId}` : 'all';
   }

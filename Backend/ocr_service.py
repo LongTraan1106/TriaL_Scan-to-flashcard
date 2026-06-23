@@ -9,7 +9,16 @@ import numpy as np
 import requests
 from paddleocr import LayoutDetection
 
-OCR_API_URL = "http://192.168.20.156:8088/v1/ocr"
+from config import (
+    LAYOUT_MODEL_NAME,
+    LAYOUT_VISUALIZATION_DIR,
+    OCR_API_URL,
+    OCR_CENTER_TOLERANCE,
+    OCR_INCLUDE_IMAGE_BASE64,
+    OCR_MAX_WORKERS,
+    OCR_MODEL_NAME,
+    OCR_TIMEOUT_SECONDS,
+)
 
 LABEL_COLORS = {
     "text": (255, 0, 0),
@@ -45,7 +54,7 @@ def initialize_layout_model() -> bool:
     global layout_model
     try:
         print("Loading Paddle OCR Layout Detection model...")
-        layout_model = LayoutDetection(model_name="PP-DocLayout-L")
+        layout_model = LayoutDetection(model_name=LAYOUT_MODEL_NAME)
         print("Paddle OCR model loaded successfully.")
         return True
     except Exception as exc:
@@ -64,14 +73,14 @@ def get_layout_model():
 
 def call_mistral_ocr(file_bytes: bytes, filename: str, ocr_url: str = OCR_API_URL) -> str:
     data = {
-        "model": "mistral-ocr-latest",
-        "include_image_base64": "false",
+        "model": OCR_MODEL_NAME,
+        "include_image_base64": OCR_INCLUDE_IMAGE_BASE64,
     }
     mime_type = "application/pdf" if filename.lower().endswith(".pdf") else "image/png"
     files = {"file": (filename, file_bytes, mime_type)}
 
     try:
-        response = requests.post(ocr_url, files=files, data=data, timeout=60)
+        response = requests.post(ocr_url, files=files, data=data, timeout=OCR_TIMEOUT_SECONDS)
         if response.status_code == 200:
             result_json = response.json()
             extracted_page = result_json.get("pages", [{}])[0]
@@ -88,7 +97,7 @@ def visualize_layout(
     img_cv2,
     boxes: List[Dict[str, Any]],
     page_idx: int,
-    save_dir: str = "layout_viz",
+    save_dir: str = LAYOUT_VISUALIZATION_DIR,
 ) -> str:
     os.makedirs(save_dir, exist_ok=True)
     img_viz = img_cv2.copy()
@@ -131,7 +140,7 @@ def visualize_layout(
     return output_path
 
 
-def group_layout_boxes(boxes: List[Dict[str, Any]], center_tolerance: int = 50):
+def group_layout_boxes(boxes: List[Dict[str, Any]], center_tolerance: int = OCR_CENTER_TOLERANCE):
     """Group readable layout boxes into left-to-right columns, then top-to-bottom boxes."""
     text_boxes = [
         box
@@ -312,9 +321,9 @@ def crop_and_ocr_box(
 
 def process_and_ocr_document(
     file_path: str,
-    center_tolerance: int = 50,
+    center_tolerance: int = OCR_CENTER_TOLERANCE,
     ocr_url: str = OCR_API_URL,
-    ocr_max_workers: int = 4,
+    ocr_max_workers: int = OCR_MAX_WORKERS,
     visualize: bool = False,
     visualization_dir: Optional[str] = None,
     output_json_path: Optional[str] = None,
@@ -384,7 +393,7 @@ def process_and_ocr_document(
                     img_cv2,
                     boxes,
                     page_idx,
-                    save_dir=visualization_dir or "layout_viz",
+                    save_dir=visualization_dir or LAYOUT_VISUALIZATION_DIR,
                 )
 
             groups = group_layout_boxes(boxes, center_tolerance)

@@ -2,6 +2,8 @@ from sqlalchemy import Column, String, DateTime, Integer, Boolean, JSON, Text, U
 from database import Base
 from datetime import datetime, timezone
 
+from config import DEFAULT_GROUP_AVATAR_KEY, DEFAULT_GROUP_MAX_MEMBERS
+
 
 class User(Base):
     """Model người dùng"""
@@ -44,8 +46,8 @@ class Group(Base):
     owner_id = Column(Integer, nullable=False, index=True)  # FK to users.id
     is_public = Column(Boolean, default=False, nullable=False)
     member_count = Column(Integer, default=1)  # Include owner
-    max_members = Column(Integer, default=25, nullable=False)
-    avatar_key = Column(String(50), default="avatar_1", nullable=False)
+    max_members = Column(Integer, default=DEFAULT_GROUP_MAX_MEMBERS, nullable=False)
+    avatar_key = Column(String(50), default=DEFAULT_GROUP_AVATAR_KEY, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
