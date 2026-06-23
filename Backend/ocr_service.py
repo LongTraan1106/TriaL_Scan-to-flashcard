@@ -334,13 +334,18 @@ def prepare_ocr_file_for_box(
         if crop_rect.is_empty or not crop_rect.is_valid:
             return b"", ""
 
-        new_doc = fitz.open()
-        new_doc.insert_pdf(doc, from_page=page_idx, to_page=page_idx)
-        new_page = new_doc[0]
-        new_page.set_cropbox(crop_rect)
-        file_bytes = new_doc.tobytes()
-        new_doc.close()
-        filename = f"page_{page_idx + 1}_box_{box_idx}.pdf"
+        page = doc[page_idx]
+
+        # Render vùng crop thành ảnh PNG.
+        # Matrix(2, 2) giúp ảnh rõ hơn cho OCR.
+        pix = page.get_pixmap(
+            matrix=fitz.Matrix(2, 2),
+            clip=crop_rect,
+            alpha=False,
+        )
+
+        file_bytes = pix.tobytes("png")
+        filename = f"page_{page_idx + 1}_box_{box_idx}.png"
     else:
         x1 = max(0, int(coord[0]) - pad)
         y1 = max(0, int(coord[1]) - pad)
